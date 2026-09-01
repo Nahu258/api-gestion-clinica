@@ -1,0 +1,5 @@
+# Dependencias del proyecto. Instalar con:  pip install -r requirements.txt
+Django==6.1
+djangorestframework==3.18.0
+python-dotenv==1.2.3
+django-cors-headers==4.9.0

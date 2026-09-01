@@ -1,0 +1,28 @@
+# --- Entorno virtual ---
+venv/
+.venv/
+env/
+
+# --- Variables de entorno (NUNCA subir credenciales) ---
+.env
+
+# --- Base de datos local ---
+*.sqlite3
+*.sqlite3-journal
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# --- Editor / SO ---
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# --- Django ---
+/staticfiles/
+/media/
+*.log
