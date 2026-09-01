@@ -1,0 +1,221 @@
+### =====================================================================
+### Coleccion de pruebas de la API (live testing del AE1)
+###
+### Como usarlo en VS Code:
+###   1. Instalar la extension "REST Client" (humao.rest-client).
+###   2. Levantar el servidor:  python manage.py runserver
+###   3. Hacer click en el "Send Request" que aparece sobre cada bloque.
+###
+### Cada bloque indica el codigo de estado HTTP que se espera.
+### Sirve para sacar las capturas de pantalla del Anexo del informe.
+### =====================================================================
+
+@host = http://127.0.0.1:8000
+@base = {{host}}/api/v1
+
+
+### [200] Mapa de rutas de la API
+GET {{base}}
+Accept: application/json
+
+
+### [200] Listar todos los turnos
+GET {{base}}/turnos
+Accept: application/json
+
+
+### [200] Listar filtrando por estado
+GET {{base}}/turnos?estado=pendiente
+Accept: application/json
+
+
+### [200] Listar filtrando por especialidad
+GET {{base}}/turnos?especialidad=pediatria
+Accept: application/json
+
+
+### [200] Buscar por paciente, DNI o profesional
+GET {{base}}/turnos?buscar=gomez
+Accept: application/json
+
+
+### [400] Filtro con un estado que no existe
+GET {{base}}/turnos?estado=inventado
+Accept: application/json
+
+
+### [200] Obtener un turno por id
+GET {{base}}/turnos/1
+Accept: application/json
+
+
+### [404] Obtener un turno inexistente
+GET {{base}}/turnos/9999
+Accept: application/json
+
+
+### [200] Historial clinico de un paciente (solo consultas atendidas)
+GET {{base}}/pacientes/30111222/historial
+Accept: application/json
+
+
+### [404] Historial de un paciente sin consultas registradas
+GET {{base}}/pacientes/99999999/historial
+Accept: application/json
+
+
+### [201] Registrar un turno valido  (OJO: la fecha debe ser futura)
+POST {{base}}/turnos
+Content-Type: application/json
+
+{
+  "paciente_nombre": "Ana Lopez",
+  "paciente_dni": "38444555",
+  "paciente_telefono": "3764-112233",
+  "obra_social": "OSDE 310",
+  "profesional": "Dra. Carla Ibarra",
+  "especialidad": "ginecologia",
+  "fecha_hora": "2027-03-15T14:00:00-03:00",
+  "motivo_consulta": "Control ginecologico anual."
+}
+
+
+### [400] Registrar un turno sin los campos obligatorios
+POST {{base}}/turnos
+Content-Type: application/json
+
+{}
+
+
+### [400] DNI con letras
+POST {{base}}/turnos
+Content-Type: application/json
+
+{
+  "paciente_nombre": "Carlos Ruiz",
+  "paciente_dni": "ABC123",
+  "paciente_telefono": "3764-556677",
+  "profesional": "Dr. Martin Aguirre",
+  "especialidad": "traumatologia",
+  "fecha_hora": "2027-05-10T10:00:00-03:00"
+}
+
+
+### [400] Fecha del turno en el pasado
+POST {{base}}/turnos
+Content-Type: application/json
+
+{
+  "paciente_nombre": "Carlos Ruiz",
+  "paciente_dni": "29888777",
+  "paciente_telefono": "3764-556677",
+  "profesional": "Dr. Martin Aguirre",
+  "especialidad": "traumatologia",
+  "fecha_hora": "2020-01-01T10:00:00-03:00"
+}
+
+
+### [400] Especialidad 'otra' sin motivo de consulta
+POST {{base}}/turnos
+Content-Type: application/json
+
+{
+  "paciente_nombre": "Carlos Ruiz",
+  "paciente_dni": "29888777",
+  "paciente_telefono": "3764-556677",
+  "profesional": "Dr. Martin Aguirre",
+  "especialidad": "otra",
+  "fecha_hora": "2027-05-10T10:00:00-03:00"
+}
+
+
+### [409] El profesional ya tiene un turno en ese horario
+POST {{base}}/turnos
+Content-Type: application/json
+
+{
+  "paciente_nombre": "Pedro Sosa",
+  "paciente_dni": "31555444",
+  "paciente_telefono": "3764-887766",
+  "profesional": "Dra. Carla Ibarra",
+  "especialidad": "pediatria",
+  "fecha_hora": "2027-03-15T14:10:00-03:00"
+}
+
+
+### [201] Otro profesional SI puede atender a la misma hora
+POST {{base}}/turnos
+Content-Type: application/json
+
+{
+  "paciente_nombre": "Pedro Sosa",
+  "paciente_dni": "31555444",
+  "paciente_telefono": "3764-887766",
+  "profesional": "Dr. Nicolas Ferreyra",
+  "especialidad": "cardiologia",
+  "fecha_hora": "2027-03-15T14:00:00-03:00",
+  "motivo_consulta": "Chequeo pre-competencia deportiva."
+}
+
+
+### [200] Reemplazar un turno completo (PUT: se mandan TODOS los campos)
+PUT {{base}}/turnos/1
+Content-Type: application/json
+
+{
+  "paciente_nombre": "Maria Gomez",
+  "paciente_dni": "30111222",
+  "paciente_telefono": "3764-551122",
+  "obra_social": "IOSFA",
+  "profesional": "Dra. Laura Benitez",
+  "especialidad": "clinica_medica",
+  "estado": "confirmado",
+  "fecha_hora": "2027-06-01T09:00:00-03:00",
+  "motivo_consulta": "Reprogramado a pedido del paciente.",
+  "diagnostico": "",
+  "indicaciones": ""
+}
+
+
+### [200] Modificar un solo campo (PATCH)
+PATCH {{base}}/turnos/1
+Content-Type: application/json
+
+{
+  "estado": "en_atencion"
+}
+
+
+### [400] Marcar como atendido sin cargar el diagnostico
+PATCH {{base}}/turnos/1
+Content-Type: application/json
+
+{
+  "estado": "atendido"
+}
+
+
+### [200] Cerrar la consulta cargando el historial clinico
+PATCH {{base}}/turnos/1
+Content-Type: application/json
+
+{
+  "estado": "atendido",
+  "diagnostico": "Faringitis viral. Sin complicaciones.",
+  "indicaciones": "Reposo 48 hs, ibuprofeno 400 mg cada 8 hs, abundante liquido."
+}
+
+
+### [409] Un turno ya atendido no se puede eliminar (es historial)
+DELETE {{base}}/turnos/1
+Accept: application/json
+
+
+### [204] Eliminar un turno pendiente
+DELETE {{base}}/turnos/3
+Accept: application/json
+
+
+### [405] Verbo no permitido en la coleccion
+DELETE {{base}}/turnos
+Accept: application/json
