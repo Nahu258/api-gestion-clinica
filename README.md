@@ -351,3 +351,18 @@ Si algún servicio no responde, devuelve `503` e indica cuál falla.
 
 Sin Docker el proyecto sigue funcionando como en el AE1 (SQLite), porque
 `DATABASE_ENGINE=sqlite` es el valor por defecto.
+
+---
+
+## AE2 — Módulo Turnos (juan30871)
+
+Reserva temporal con TTL en Redis, control de concurrencia, `Idempotency-Key`
+y evento `TurnoReservado` en RabbitMQ que genera el comprobante PDF con QR.
+Detalle completo, decisiones y alternativas en [`docs/ae2-turnos.md`](docs/ae2-turnos.md).
+
+```powershell
+docker compose up -d --build                                 # api + worker + postgres + redis + rabbitmq
+docker compose exec api python manage.py test                 # 44 tests (incluye concurrencia)
+docker compose exec api python scripts/demo_ae2.py            # demo paso a paso
+docker compose logs -f worker                                 # ver al worker generar los PDF
+```
