@@ -3,3 +3,7 @@ Django==6.1
 djangorestframework==3.18.0
 python-dotenv==1.2.3
 django-cors-headers==4.9.0
+# --- AE2 ---
+psycopg[binary]==3.2.10   # driver de PostgreSQL
+redis==6.4.0              # cliente de Redis
+pika==1.3.2               # cliente de RabbitMQ

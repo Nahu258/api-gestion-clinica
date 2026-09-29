@@ -1,0 +1,59 @@
+# AE2 — Infraestructura del proyecto.
+# Levantar todo:      docker compose up -d
+# Ver que esta vivo:  docker compose ps
+# Apagar:             docker compose down
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: clinica
+      POSTGRES_USER: clinica
+      POSTGRES_PASSWORD: clinica
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clinica -d clinica"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"     # conexion desde el codigo
+      - "15672:15672"   # panel web: http://localhost:15672 (guest / guest)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      retries: 10
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_ENGINE: postgres
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
+
+volumes:
+  pgdata:

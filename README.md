@@ -304,3 +304,50 @@ El historial clínico es información de salud. Para el AE1 los datos son
 ficticios, pero es un buen argumento para el apartado de **requerimientos no
 funcionales**: autenticación, control de acceso por rol (recepción vs. médico)
 y registro de auditoría son deuda explícita a resolver en el AE2.
+
+---
+
+## AE2 — Infraestructura con Docker
+
+Rama: `ae2/juan30871`. Se agregan PostgreSQL, Redis y RabbitMQ como contenedores.
+
+### Levantar todo
+
+1. Tener **Docker Desktop** abierto (tiene que decir *Engine running*).
+2. Copiar `.env.example` a `.env` (si no existe).
+3. Desde la carpeta del proyecto:
+
+```powershell
+docker compose up -d --build
+docker compose ps
+```
+
+| Servicio | Puerto | Para qué |
+|---|---|---|
+| `api` | 8000 | La API de Django, usando PostgreSQL |
+| `postgres` | 5432 | Base de datos |
+| `redis` | 6379 | Caché y estado temporal |
+| `rabbitmq` | 5672 / 15672 | Mensajería asincrónica / panel web (`guest` / `guest`) |
+
+### Verificar
+
+Abrir <http://localhost:8000/api/v1/salud>. Si todo está conectado responde `200`:
+
+```json
+{"base_de_datos": "ok", "motor": "postgresql", "redis": "ok", "rabbitmq": "ok"}
+```
+
+Si algún servicio no responde, devuelve `503` e indica cuál falla.
+
+### Comandos útiles
+
+| Comando | Para qué sirve |
+|---|---|
+| `docker compose up -d` | Levanta los servicios |
+| `docker compose logs -f api` | Ver los logs de la API |
+| `docker compose exec api python manage.py test` | Correr los tests dentro del contenedor |
+| `docker compose exec api python manage.py seed_turnos` | Cargar datos de prueba |
+| `docker compose down` | Apagar todo (los datos de Postgres se conservan) |
+
+Sin Docker el proyecto sigue funcionando como en el AE1 (SQLite), porque
+`DATABASE_ENGINE=sqlite` es el valor por defecto.
