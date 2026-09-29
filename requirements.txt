@@ -7,3 +7,6 @@ django-cors-headers==4.9.0
 psycopg[binary]==3.2.10   # driver de PostgreSQL
 redis==6.4.0              # cliente de Redis
 pika==1.3.2               # cliente de RabbitMQ
+reportlab==5.0.1          # generacion del comprobante PDF
+qrcode[pil]==8.2          # codigo QR del comprobante
+fakeredis==2.38.0         # Redis en memoria para los tests

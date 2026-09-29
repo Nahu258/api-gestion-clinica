@@ -140,3 +140,27 @@ class TurnoSerializer(serializers.ModelSerializer):
             )
 
         return datos
+
+
+class ReservaTemporalSerializer(serializers.Serializer):
+    """AE2 - Pedido para apartar un horario (no se guarda en la base, va a Redis)."""
+
+    profesional = serializers.CharField(max_length=120)
+    fecha_hora = serializers.DateTimeField()
+    token = serializers.CharField(read_only=True)
+    expira_en_segundos = serializers.IntegerField(read_only=True)
+
+    def validate_profesional(self, valor: str) -> str:
+        valor = valor.strip()
+        if len(valor) < 3:
+            raise serializers.ValidationError(
+                "El nombre del profesional debe tener al menos 3 caracteres."
+            )
+        return valor
+
+    def validate_fecha_hora(self, valor):
+        if valor <= timezone.now():
+            raise serializers.ValidationError(
+                "La fecha y hora debe ser posterior al momento actual."
+            )
+        return valor

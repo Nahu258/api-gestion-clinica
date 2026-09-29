@@ -9,6 +9,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 import os
+import sys
 
 # BASE_DIR apunta a la carpeta que contiene manage.py
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -129,6 +130,17 @@ else:
 # ---------------------------------------------------------------------------
 REDIS_URL = env("REDIS_URL", "redis://localhost:6379/0")
 RABBITMQ_URL = env("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+# Si es False, la API no publica eventos (util para correr sin RabbitMQ).
+EVENTOS_HABILITADOS = env_bool("EVENTOS_HABILITADOS", True)
+
+# Los tests usan un Redis en memoria y no publican en RabbitMQ, asi corren
+# en cualquier compu sin tener los contenedores levantados.
+if len(sys.argv) > 1 and sys.argv[1] == "test":
+    REDIS_URL = "fakeredis://"
+    EVENTOS_HABILITADOS = False
+
+# Archivos generados (comprobantes PDF)
+MEDIA_ROOT = BASE_DIR / env("MEDIA_DIR", "media")
 
 # ---------------------------------------------------------------------------
 # Validadores de contrasena (solo aplican al admin de Django)
