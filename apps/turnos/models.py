@@ -10,6 +10,8 @@ Entidad principal del AE1: Turno.
 """
 
 from django.db import models
+from django.db.models import Q
+from django.db.models.functions import Lower
 
 
 class Turno(models.Model):
@@ -101,6 +103,17 @@ class Turno(models.Model):
             models.Index(fields=["fecha_hora"]),
             models.Index(fields=["estado"]),
             models.Index(fields=["paciente_dni"]),
+        ]
+        constraints = [
+            # AE2 - Ultima defensa contra la doble reserva: la BASE no permite
+            # dos turnos activos del mismo profesional a la misma hora, aunque
+            # dos pedidos lleguen exactamente juntos. Los cancelados no cuentan.
+            models.UniqueConstraint(
+                Lower("profesional"),
+                "fecha_hora",
+                condition=~Q(estado="cancelado"),
+                name="turno_unico_por_profesional_y_horario",
+            ),
         ]
 
     def __str__(self) -> str:

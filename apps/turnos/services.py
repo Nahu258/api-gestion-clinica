@@ -14,9 +14,12 @@ consola o para un test, sin tocar una linea.
 
 from datetime import timedelta
 
+from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 
+from apps.turnos import agenda
 from apps.turnos.models import Turno
+from core import eventos
 from core.exceptions import DatosInvalidos, RecursoNoEncontrado, ReglaDeNegocioViolada
 
 # Regla de negocio: cada consulta ocupa 20 minutos de la agenda del profesional.
@@ -93,14 +96,61 @@ def obtener_historial_de_paciente(dni: str) -> QuerySet[Turno]:
     return historial
 
 
-def crear_turno(datos_validados: dict) -> Turno:
-    """Aplica las reglas de negocio y persiste un turno nuevo."""
-    _verificar_agenda_libre(
-        profesional=datos_validados["profesional"],
-        fecha_hora=datos_validados["fecha_hora"],
-        excluir_id=None,
+def reservar_temporalmente(profesional: str, fecha_hora) -> dict:
+    """
+    AE2 - Aparta un horario por unos minutos (Redis con TTL).
+    Primero se verifica que no este ya ocupado en la base.
+    """
+    _verificar_agenda_libre(profesional=profesional, fecha_hora=fecha_hora, excluir_id=None)
+    reserva = agenda.crear_reserva_temporal(profesional, fecha_hora)
+    return {"profesional": profesional, "fecha_hora": fecha_hora, **reserva}
+
+
+def crear_turno(datos_validados: dict, reserva_token: str | None = None) -> Turno:
+    """
+    Aplica las reglas de negocio y persiste un turno nuevo.
+
+    AE2 - Control de concurrencia en tres capas:
+      1. Lock en Redis por profesional: serializa los pedidos que compiten
+         por la misma agenda, asi la verificacion y el guardado no se mezclan.
+      2. Reserva temporal: si el horario esta apartado por otra persona, 409.
+      3. Restriccion unica en la base (ultima defensa): aunque todo lo
+         anterior fallara, la base rechaza el duplicado -> 409.
+    """
+    profesional = datos_validados["profesional"]
+    fecha_hora = datos_validados["fecha_hora"]
+
+    with agenda.lock_de_agenda(profesional):
+        clave_hold = agenda.verificar_reserva_temporal(profesional, fecha_hora, reserva_token)
+        _verificar_agenda_libre(profesional=profesional, fecha_hora=fecha_hora, excluir_id=None)
+        try:
+            with transaction.atomic():
+                turno = Turno.objects.create(**datos_validados)
+        except IntegrityError:
+            raise ReglaDeNegocioViolada(
+                f"{profesional} ya tiene un turno el {fecha_hora:%d/%m/%Y %H:%M}."
+            )
+        agenda.borrar_hold(clave_hold, reserva_token)
+
+    # El evento se publica recien cuando la transaccion quedo confirmada:
+    # nunca se avisa de un turno que despues no existe.
+    evento = eventos.armar_evento("TurnoReservado", datos_del_evento(turno))
+    transaction.on_commit(
+        lambda: eventos.publicar(eventos.RK_TURNO_RESERVADO, evento)
     )
-    return Turno.objects.create(**datos_validados)
+    return turno
+
+
+def datos_del_evento(turno: Turno) -> dict:
+    return {
+        "turno_id": turno.pk,
+        "paciente_nombre": turno.paciente_nombre,
+        "paciente_dni": turno.paciente_dni,
+        "profesional": turno.profesional,
+        "especialidad": turno.especialidad,
+        "especialidad_legible": turno.get_especialidad_display(),
+        "fecha_hora": turno.fecha_hora.isoformat(),
+    }
 
 
 def actualizar_turno(turno: Turno, datos_validados: dict) -> Turno:
@@ -115,16 +165,28 @@ def actualizar_turno(turno: Turno, datos_validados: dict) -> Turno:
     nueva_fecha = datos_validados.get("fecha_hora", turno.fecha_hora)
     nuevo_estado = datos_validados.get("estado", turno.estado)
 
-    if nuevo_estado != Turno.Estado.CANCELADO:
+    if nuevo_estado == Turno.Estado.CANCELADO:
+        for campo, valor in datos_validados.items():
+            setattr(turno, campo, valor)
+        turno.save()
+        return turno
+
+    # AE2: mover un turno tambien compite por la agenda -> mismo lock.
+    with agenda.lock_de_agenda(nuevo_profesional):
         _verificar_agenda_libre(
             profesional=nuevo_profesional,
             fecha_hora=nueva_fecha,
             excluir_id=turno.pk,
         )
-
-    for campo, valor in datos_validados.items():
-        setattr(turno, campo, valor)
-    turno.save()
+        for campo, valor in datos_validados.items():
+            setattr(turno, campo, valor)
+        try:
+            with transaction.atomic():
+                turno.save()
+        except IntegrityError:
+            raise ReglaDeNegocioViolada(
+                f"{nuevo_profesional} ya tiene un turno el {nueva_fecha:%d/%m/%Y %H:%M}."
+            )
     return turno
 
 
