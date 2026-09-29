@@ -113,7 +113,7 @@ class HistorialClinicoAPIView(APIView):
         return Response(
             {
                 "paciente_dni": dni,
-                "paciente_nombre": consultas[0].paciente_nombre,
+                "paciente_nombre": consultas[0].paciente.nombre if consultas else "Desconocido",
                 "cantidad_consultas": len(serializer.data),
                 "consultas": serializer.data,
             },

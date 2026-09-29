@@ -57,8 +57,8 @@ INSTALLED_APPS = [
     # Librerias de terceros
     "rest_framework",
     "corsheaders",
-    # Apps propias del proyecto (una por cada modulo de dominio)
     "apps.turnos",
+    "apps.clinica",
 ]
 
 # ---------------------------------------------------------------------------
@@ -156,3 +156,13 @@ REST_FRAMEWORK = {
 # ---------------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS")
 CORS_ALLOW_CREDENTIALS = False
+
+# ---------------------------------------------------------------------------
+# Caché (Redis)
+# ---------------------------------------------------------------------------
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": env("REDIS_URL", "redis://127.0.0.1:6379/1"),
+    }
+}

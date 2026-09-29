@@ -16,13 +16,6 @@ class Turno(models.Model):
     """Un turno reservado por un paciente con un profesional de la clinica."""
 
     # ----- Catalogos (choices): valores cerrados y validados por Django -----
-    class Especialidad(models.TextChoices):
-        CLINICA_MEDICA = "clinica_medica", "Clinica medica"
-        PEDIATRIA = "pediatria", "Pediatria"
-        CARDIOLOGIA = "cardiologia", "Cardiologia"
-        TRAUMATOLOGIA = "traumatologia", "Traumatologia"
-        GINECOLOGIA = "ginecologia", "Ginecologia"
-        OTRA = "otra", "Otra"
 
     class Estado(models.TextChoices):
         PENDIENTE = "pendiente", "Pendiente"
@@ -33,34 +26,19 @@ class Turno(models.Model):
         AUSENTE = "ausente", "Paciente ausente"
 
     # ----- Datos del paciente -----
-    paciente_nombre = models.CharField(
-        max_length=120,
-        verbose_name="Nombre y apellido del paciente",
-    )
-    paciente_dni = models.CharField(
-        max_length=10,
-        verbose_name="DNI del paciente",
-    )
-    paciente_telefono = models.CharField(
-        max_length=30,
-        verbose_name="Telefono de contacto",
-    )
-    obra_social = models.CharField(
-        max_length=80,
-        blank=True,
-        default="",
-        verbose_name="Obra social o prepaga",
+    paciente = models.ForeignKey(
+        'clinica.Paciente',
+        on_delete=models.CASCADE,
+        related_name='turnos',
+        verbose_name="Paciente"
     )
 
     # ----- Datos de la atencion -----
-    profesional = models.CharField(
-        max_length=120,
-        verbose_name="Profesional que atiende",
-    )
-    especialidad = models.CharField(
-        max_length=20,
-        choices=Especialidad.choices,
-        default=Especialidad.CLINICA_MEDICA,
+    medico = models.ForeignKey(
+        'clinica.Medico',
+        on_delete=models.CASCADE,
+        related_name='turnos',
+        verbose_name="Medico que atiende"
     )
     fecha_hora = models.DateTimeField(
         verbose_name="Fecha y hora del turno",
@@ -91,6 +69,9 @@ class Turno(models.Model):
     # ----- Auditoria: los completa Django solo -----
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
+    
+    # ----- Control de Concurrencia (Optimistic Locking) -----
+    version = models.IntegerField(default=0)
 
     class Meta:
         db_table = "turnos"
@@ -100,14 +81,14 @@ class Turno(models.Model):
         indexes = [
             models.Index(fields=["fecha_hora"]),
             models.Index(fields=["estado"]),
-            models.Index(fields=["paciente_dni"]),
+            models.Index(fields=["paciente_id"]),
         ]
 
     def __str__(self) -> str:
         # Lo que se ve en el admin y al imprimir el objeto.
         return (
-            f"{self.fecha_hora:%d/%m/%Y %H:%M} - {self.paciente_nombre} "
-            f"(DNI {self.paciente_dni})"
+            f"{self.fecha_hora:%d/%m/%Y %H:%M} - {self.paciente.nombre} "
+            f"(DNI {self.paciente.dni})"
         )
 
     @property
