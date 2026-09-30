@@ -7,27 +7,41 @@ Reglas de esta capa:
   * Cuando algo esta mal, levanta una excepcion de dominio
     (RecursoNoEncontrado, ReglaDeNegocioViolada). La traduccion a codigos
     HTTP la hace core/exceptions.py.
+  * Los datos de pacientes y medicos pertenecen al modulo Clinica: se piden
+    a apps.clinica.services, nunca se leen sus tablas desde aca.
 
 Gracias a esto, la misma logica sirve para la API REST, para un comando de
 consola o para un test, sin tocar una linea.
 """
 
+import logging
 from datetime import timedelta
 
-from django.db.models import Q, QuerySet
 from django.core.cache import cache
-import json
-import pika
+from django.db.models import F, Q, QuerySet
+from django.utils import timezone
 
-from apps.turnos.models import Turno
 from apps.clinica.services import (
-    obtener_paciente, obtener_paciente_por_dni, 
-    buscar_pacientes_ids_por_nombre, buscar_medicos_ids_por_nombre
+    buscar_medicos_ids_por_especialidad,
+    buscar_medicos_ids_por_nombre,
+    buscar_pacientes_ids_por_dni,
+    buscar_pacientes_ids_por_nombre,
+    especialidades_validas,
+    obtener_paciente,
+    obtener_paciente_por_dni,
 )
+from apps.turnos.eventos import publicar_evento
+from apps.turnos.models import Turno
 from core.exceptions import DatosInvalidos, RecursoNoEncontrado, ReglaDeNegocioViolada
+
+logger = logging.getLogger(__name__)
 
 # Regla de negocio: cada consulta ocupa 20 minutos de la agenda del profesional.
 DURACION_DE_LA_CONSULTA = timedelta(minutes=20)
+
+# El historial solo cambia cuando se atiende un turno: se cachea 1 hora y se
+# invalida explicitamente en ese momento.
+TTL_HISTORIAL = 60 * 60
 
 
 def listar_turnos(
@@ -39,8 +53,8 @@ def listar_turnos(
     Devuelve todos los turnos, con filtros opcionales.
 
     :param estado: filtra por estado exacto (pendiente, confirmado, ...).
-    :param especialidad: filtra por especialidad medica.
-    :param buscar: texto libre sobre paciente, DNI o profesional.
+    :param especialidad: filtra por la especialidad del medico.
+    :param buscar: texto libre sobre nombre o DNI del paciente, o nombre del medico.
     """
     turnos = Turno.objects.all()
 
@@ -53,17 +67,18 @@ def listar_turnos(
         turnos = turnos.filter(estado=estado)
 
     if especialidad:
-        if especialidad not in Turno.Especialidad.values:
+        validas = especialidades_validas()
+        if especialidad not in validas:
             raise DatosInvalidos(
                 f"La especialidad '{especialidad}' no es valida. "
-                f"Valores permitidos: {', '.join(Turno.Especialidad.values)}."
+                f"Valores permitidos: {', '.join(validas)}."
             )
-        turnos = turnos.filter(especialidad=especialidad)
+        turnos = turnos.filter(medico_id__in=buscar_medicos_ids_por_especialidad(especialidad))
 
     if buscar:
-        pacientes_ids = buscar_pacientes_ids_por_nombre(buscar)
+        pacientes_ids = buscar_pacientes_ids_por_nombre(buscar) + buscar_pacientes_ids_por_dni(buscar)
         medicos_ids = buscar_medicos_ids_por_nombre(buscar)
-        
+
         turnos = turnos.filter(
             Q(paciente_id__in=pacientes_ids)
             | Q(medico_id__in=medicos_ids)
@@ -89,14 +104,13 @@ def obtener_historial_de_paciente(dni: str) -> QuerySet[Turno]:
     if not dni.isdigit():
         raise DatosInvalidos("El DNI del paciente solo puede contener numeros.")
 
-    # Validamos que el paciente exista llamando al otro servicio
+    # Validamos que el paciente exista pidiendoselo al modulo Clinica.
     paciente = obtener_paciente_por_dni(dni)
 
-    cache_key = f"historial_paciente_{dni}"
-    historial_ids = cache.get(cache_key)
+    cache_key = _clave_historial(dni)
+    historial_ids = _cache_get(cache_key)
 
     if historial_ids is not None:
-        # Recuperar de DB manteniendo orden
         return Turno.objects.filter(id__in=historial_ids).order_by("-fecha_hora")
 
     historial = Turno.objects.filter(
@@ -109,38 +123,60 @@ def obtener_historial_de_paciente(dni: str) -> QuerySet[Turno]:
             f"No hay consultas atendidas registradas para el DNI {dni}."
         )
 
-    # Guardar en cache por 1 hora
-    cache.set(cache_key, list(historial.values_list('id', flat=True)), 60 * 60)
+    _cache_set(cache_key, list(historial.values_list("id", flat=True)), TTL_HISTORIAL)
 
     return historial
 
 
 def crear_turno(datos_validados: dict) -> Turno:
     """Aplica las reglas de negocio y persiste un turno nuevo."""
+    datos = dict(datos_validados)
+    datos.pop("version", None)  # la version la administra el sistema
+
     _verificar_agenda_libre(
-        medico_id=datos_validados.get("medico_id"),
-        fecha_hora=datos_validados["fecha_hora"],
+        medico_id=datos["medico_id"],
+        fecha_hora=datos["fecha_hora"],
         excluir_id=None,
     )
-    turno = Turno.objects.create(**datos_validados)
-    _publicar_evento("TurnoCreado", {"turno_id": turno.id})
+    turno = Turno.objects.create(**datos)
+    publicar_evento(
+        "TurnoCreado",
+        {
+            "turno_id": turno.id,
+            "paciente_id": turno.paciente_id,
+            "medico_id": turno.medico_id,
+            "fecha_hora": turno.fecha_hora.isoformat(),
+        },
+    )
     return turno
 
 
-def actualizar_turno(turno: Turno, datos_validados: dict) -> Turno:
-    """Modifica un turno existente respetando las reglas de negocio."""
-    if "diagnostico" in datos_validados or "indicaciones" in datos_validados:
-        version_enviada = datos_validados.get("version")
-        if version_enviada is not None and version_enviada != turno.version:
-            raise ReglaDeNegocioViolada(
-                "El diagnostico fue editado por otro profesional simultaneamente. "
-                "Por favor, recargue la pagina y vuelva a intentarlo."
-            )
-        turno.version += 1
+def actualizar_turno(turno: Turno, datos_validados: dict, publicar_eventos: bool = True) -> Turno:
+    """
+    Modifica un turno existente respetando las reglas de negocio.
 
-    nuevo_medico_id = datos_validados.get("medico_id", turno.medico_id)
-    nueva_fecha = datos_validados.get("fecha_hora", turno.fecha_hora)
-    nuevo_estado = datos_validados.get("estado", turno.estado)
+    `publicar_eventos=False` lo usa el consumidor de RabbitMQ: aplica un
+    TurnoAtendido recibido y no tiene sentido volver a publicarlo.
+
+    Control de concurrencia optimista: el UPDATE solo se aplica si la fila
+    sigue en la `version` que se leyo (la enviada por el cliente o, si no
+    envio ninguna, la que tenia el turno al cargarlo). Si otra request la
+    cambio en el medio, el UPDATE no afecta filas y se responde 409.
+    """
+    if turno.estado == Turno.Estado.ATENDIDO:
+        raise ReglaDeNegocioViolada(
+            "Un turno ya atendido no puede modificarse: su registro clinico "
+            "forma parte del historial del paciente."
+        )
+
+    datos = dict(datos_validados)
+    version_esperada = datos.pop("version", turno.version)
+    if version_esperada != turno.version:
+        raise _conflicto_de_version()
+
+    nuevo_medico_id = datos.get("medico_id", turno.medico_id)
+    nueva_fecha = datos.get("fecha_hora", turno.fecha_hora)
+    nuevo_estado = datos.get("estado", turno.estado)
 
     if nuevo_estado != Turno.Estado.CANCELADO:
         _verificar_agenda_libre(
@@ -149,15 +185,33 @@ def actualizar_turno(turno: Turno, datos_validados: dict) -> Turno:
             excluir_id=turno.pk,
         )
 
-    for campo, valor in datos_validados.items():
-        if campo != "version":
-            setattr(turno, campo, valor)
-    turno.save()
+    # UPDATE turnos SET ..., version = version + 1 WHERE id = ? AND version = ?
+    # (update() no pasa por save(): actualizado_en se completa a mano).
+    filas = Turno.objects.filter(pk=turno.pk, version=version_esperada).update(
+        **datos,
+        version=F("version") + 1,
+        actualizado_en=timezone.now(),
+    )
+    if filas == 0:
+        raise _conflicto_de_version()
 
+    turno.refresh_from_db()
+
+    # Solo se llega aca si el turno NO estaba atendido: el evento se publica
+    # una unica vez, en la transicion a 'atendido'.
     if turno.estado == Turno.Estado.ATENDIDO:
         paciente = obtener_paciente(turno.paciente_id)
-        cache.delete(f"historial_paciente_{paciente.dni}")
-        _publicar_evento("TurnoAtendido", {"turno_id": turno.id, "diagnostico": turno.diagnostico})
+        _cache_delete(_clave_historial(paciente.dni))
+        if publicar_eventos:
+            publicar_evento(
+                "TurnoAtendido",
+                {
+                    "turno_id": turno.id,
+                    "paciente_id": turno.paciente_id,
+                    "diagnostico": turno.diagnostico,
+                    "indicaciones": turno.indicaciones,
+                },
+            )
 
     return turno
 
@@ -180,15 +234,12 @@ def eliminar_turno(turno: Turno) -> None:
 # ---------------------------------------------------------------------------
 # Funciones auxiliares privadas (el guion bajo indica "uso interno")
 # ---------------------------------------------------------------------------
-def _verificar_agenda_libre(medico_id: int | None, fecha_hora, excluir_id: int | None) -> None:
+def _verificar_agenda_libre(medico_id: int, fecha_hora, excluir_id: int | None) -> None:
     """
-    Levanta ReglaDeNegocioViolada (-> 409) si ESE profesional ya tiene un
-    turno solapado. Dos profesionales distintos si pueden atender a la
+    Levanta ReglaDeNegocioViolada (-> 409) si ESE medico ya tiene un
+    turno solapado. Dos medicos distintos si pueden atender a la
     misma hora: la clinica tiene varios consultorios.
     """
-    if not medico_id:
-        return
-
     desde = fecha_hora - DURACION_DE_LA_CONSULTA + timedelta(seconds=1)
     hasta = fecha_hora + DURACION_DE_LA_CONSULTA - timedelta(seconds=1)
 
@@ -209,27 +260,38 @@ def _verificar_agenda_libre(medico_id: int | None, fecha_hora, excluir_id: int |
             f"de {fecha_hora:%d/%m/%Y %H:%M}. Elija otro horario o profesional."
         )
 
-def _publicar_evento(tipo: str, payload: dict):
-    """
-    Publica un evento en RabbitMQ demostrando comunicación asíncrona (Productor).
-    """
+
+def _conflicto_de_version() -> ReglaDeNegocioViolada:
+    return ReglaDeNegocioViolada(
+        "El turno fue modificado por otro profesional mientras lo editaba. "
+        "Recargue el turno y vuelva a intentarlo."
+    )
+
+
+def _clave_historial(dni: str) -> str:
+    return f"historial_paciente_{dni}"
+
+
+# La cache es una optimizacion: si Redis no responde, se sigue contra la base
+# en lugar de devolver un 500.
+def _cache_get(clave: str):
     try:
-        connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
-        channel = connection.channel()
-        channel.queue_declare(queue='eventos_clinica', durable=True)
-        
-        mensaje = payload.copy()
-        mensaje['tipo'] = tipo
-        
-        channel.basic_publish(
-            exchange='',
-            routing_key='eventos_clinica',
-            body=json.dumps(mensaje),
-            properties=pika.BasicProperties(
-                delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE
-            )
-        )
-        connection.close()
-    except Exception as e:
-        # En un sistema real se deberia hacer retries o guardar en tabla de outbox
-        print(f"Error publicando evento {tipo}: {e}")
+        return cache.get(clave)
+    except Exception:
+        logger.warning("Cache no disponible al leer %s", clave, exc_info=True)
+        return None
+
+
+def _cache_set(clave: str, valor, ttl: int) -> None:
+    try:
+        cache.set(clave, valor, ttl)
+    except Exception:
+        logger.warning("Cache no disponible al escribir %s", clave, exc_info=True)
+
+
+def _cache_delete(clave: str) -> None:
+    try:
+        cache.delete(clave)
+    except Exception:
+        # Sin invalidacion, el historial puede quedar viejo hasta su TTL (1 h).
+        logger.error("No se pudo invalidar %s en la cache", clave, exc_info=True)

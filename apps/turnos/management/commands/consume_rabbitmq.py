@@ -1,57 +1,57 @@
 import json
+
 import pika
 from django.core.management.base import BaseCommand
-from django.core.cache import cache
-from apps.turnos.services import obtener_turno, actualizar_turno
-from apps.turnos.models import Turno
+
+from apps.turnos.eventos import (
+    COLA_EVENTOS,
+    DUPLICADO,
+    PROCESADO,
+    parametros_de_conexion,
+    procesar_evento,
+)
+
 
 class Command(BaseCommand):
-    help = 'Consume eventos de RabbitMQ (ej. TurnoAtendido)'
+    help = "Consume eventos de RabbitMQ (ej. TurnoAtendido)"
 
     def handle(self, *args, **options):
-        connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+        connection = pika.BlockingConnection(parametros_de_conexion())
         channel = connection.channel()
 
-        channel.queue_declare(queue='eventos_clinica', durable=True)
+        channel.queue_declare(queue=COLA_EVENTOS, durable=True)
+        # De a un mensaje por vez: no se toma el siguiente hasta confirmar este.
+        channel.basic_qos(prefetch_count=1)
 
         def callback(ch, method, properties, body):
-            evento = json.loads(body)
-            tipo_evento = evento.get("tipo")
-            
-            if tipo_evento == "TurnoAtendido":
-                turno_id = evento.get("turno_id")
-                diagnostico = evento.get("diagnostico", "")
-                indicaciones = evento.get("indicaciones", "")
-                
-                # Idempotencia usando Redis
-                evento_id = evento.get("evento_id", f"turno_atendido_{turno_id}")
-                cache_key = f"procesado_{evento_id}"
-                
-                if cache.get(cache_key):
-                    self.stdout.write(self.style.WARNING(f"Evento {evento_id} ya fue procesado. Ignorando."))
-                    ch.basic_ack(delivery_tag=method.delivery_tag)
-                    return
-                
-                try:
-                    turno = obtener_turno(turno_id)
-                    # Si ya estaba atendido, también lo consideramos idempotente
-                    if turno.estado != Turno.Estado.ATENDIDO:
-                        actualizar_turno(turno, {
-                            "estado": Turno.Estado.ATENDIDO,
-                            "diagnostico": diagnostico,
-                            "indicaciones": indicaciones
-                        })
-                    
-                    # Marcar como procesado por 24 horas
-                    cache.set(cache_key, True, timeout=60*60*24)
-                    self.stdout.write(self.style.SUCCESS(f"Turno {turno_id} marcado como atendido."))
-                    
-                except Exception as e:
-                    self.stdout.write(self.style.ERROR(f"Error procesando turno {turno_id}: {e}"))
-                    
+            try:
+                evento = json.loads(body)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                # Mensaje malformado: reintentarlo no lo arregla. Se descarta.
+                self.stdout.write(self.style.ERROR(f"Mensaje invalido descartado: {body!r}"))
+                ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                return
+
+            try:
+                resultado = procesar_evento(evento)
+            except Exception as e:
+                # Primer fallo: se devuelve a la cola para un reintento.
+                # Si ya era una reentrega y vuelve a fallar, se descarta.
+                reintentar = not method.redelivered
+                self.stdout.write(self.style.ERROR(
+                    f"Error procesando {evento.get('tipo')} turno {evento.get('turno_id')}: {e}"
+                    f" ({'se reintenta' if reintentar else 'se descarta'})"
+                ))
+                ch.basic_nack(delivery_tag=method.delivery_tag, requeue=reintentar)
+                return
+
+            if resultado == PROCESADO:
+                self.stdout.write(self.style.SUCCESS(f"Turno {evento.get('turno_id')} marcado como atendido."))
+            elif resultado == DUPLICADO:
+                self.stdout.write(self.style.WARNING(f"Evento {evento.get('evento_id')} ya fue procesado. Ignorando."))
             ch.basic_ack(delivery_tag=method.delivery_tag)
 
-        channel.basic_consume(queue='eventos_clinica', on_message_callback=callback)
+        channel.basic_consume(queue=COLA_EVENTOS, on_message_callback=callback)
 
         self.stdout.write(self.style.SUCCESS('Esperando mensajes de RabbitMQ. Para salir presione CTRL+C'))
         channel.start_consuming()
