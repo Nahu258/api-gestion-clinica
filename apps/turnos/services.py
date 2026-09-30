@@ -109,8 +109,9 @@ def obtener_historial_de_paciente(dni: str) -> QuerySet[Turno]:
 
     cache_key = _clave_historial(dni)
     historial_ids = _cache_get(cache_key)
+    cache_disponible = historial_ids is not CACHE_NO_DISPONIBLE
 
-    if historial_ids is not None:
+    if cache_disponible and historial_ids is not None:
         return Turno.objects.filter(id__in=historial_ids).order_by("-fecha_hora")
 
     historial = Turno.objects.filter(
@@ -123,7 +124,10 @@ def obtener_historial_de_paciente(dni: str) -> QuerySet[Turno]:
             f"No hay consultas atendidas registradas para el DNI {dni}."
         )
 
-    _cache_set(cache_key, list(historial.values_list("id", flat=True)), TTL_HISTORIAL)
+    # Si la lectura ya fallo, no se intenta escribir: seria esperar otro
+    # timeout para nada.
+    if cache_disponible:
+        _cache_set(cache_key, list(historial.values_list("id", flat=True)), TTL_HISTORIAL)
 
     return historial
 
@@ -274,12 +278,16 @@ def _clave_historial(dni: str) -> str:
 
 # La cache es una optimizacion: si Redis no responde, se sigue contra la base
 # en lugar de devolver un 500.
+CACHE_NO_DISPONIBLE = object()
+
+
 def _cache_get(clave: str):
+    """Devuelve el valor, None si no esta, o CACHE_NO_DISPONIBLE si Redis fallo."""
     try:
         return cache.get(clave)
     except Exception:
         logger.warning("Cache no disponible al leer %s", clave, exc_info=True)
-        return None
+        return CACHE_NO_DISPONIBLE
 
 
 def _cache_set(clave: str, valor, ttl: int) -> None:
