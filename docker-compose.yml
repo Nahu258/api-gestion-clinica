@@ -1,0 +1,60 @@
+# Entorno completo de AE2: API + consumidor + Redis + RabbitMQ.
+#
+#   docker compose up --build
+#
+# API:                 http://localhost:8000/api/v1
+# Panel de RabbitMQ:   http://localhost:15672  (guest / guest)
+
+x-app: &app
+  build: .
+  environment:
+    DJANGO_DEBUG: "True"
+    DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,api"
+    DATABASE_NAME: "data/db.sqlite3"
+    REDIS_URL: "redis://redis:6379/1"
+    RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/%2F?connection_attempts=3&retry_delay=2"
+  volumes:
+    - datos:/app/data
+  depends_on:
+    redis:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+
+services:
+  api:
+    <<: *app
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py seed_turnos &&
+             python manage.py runserver 0.0.0.0:8000"
+    ports:
+      - "8000:8000"
+
+  consumidor:
+    <<: *app
+    # No migra: lo hace la api (dos migrate en paralelo sobre SQLite chocan).
+    command: python manage.py consume_rabbitmq
+    restart: on-failure
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      retries: 10
+
+volumes:
+  datos:
