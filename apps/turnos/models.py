@@ -26,19 +26,15 @@ class Turno(models.Model):
         AUSENTE = "ausente", "Paciente ausente"
 
     # ----- Datos del paciente -----
-    paciente = models.ForeignKey(
-        'clinica.Paciente',
-        on_delete=models.CASCADE,
-        related_name='turnos',
-        verbose_name="Paciente"
+    paciente_id = models.IntegerField(
+        verbose_name="ID del Paciente",
+        help_text="Referencia desacoplada al módulo Clínica"
     )
 
     # ----- Datos de la atencion -----
-    medico = models.ForeignKey(
-        'clinica.Medico',
-        on_delete=models.CASCADE,
-        related_name='turnos',
-        verbose_name="Medico que atiende"
+    medico_id = models.IntegerField(
+        verbose_name="ID del Médico",
+        help_text="Referencia desacoplada al módulo Clínica"
     )
     fecha_hora = models.DateTimeField(
         verbose_name="Fecha y hora del turno",
@@ -87,8 +83,8 @@ class Turno(models.Model):
     def __str__(self) -> str:
         # Lo que se ve en el admin y al imprimir el objeto.
         return (
-            f"{self.fecha_hora:%d/%m/%Y %H:%M} - {self.paciente.nombre} "
-            f"(DNI {self.paciente.dni})"
+            f"{self.fecha_hora:%d/%m/%Y %H:%M} - Paciente ID: {self.paciente_id} "
+            f"- Medico ID: {self.medico_id}"
         )
 
     @property
