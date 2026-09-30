@@ -158,11 +158,31 @@ CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS")
 CORS_ALLOW_CREDENTIALS = False
 
 # ---------------------------------------------------------------------------
-# Caché (Redis)
+# Cache y estado efimero (Redis): historial clinico y eventos ya procesados
 # ---------------------------------------------------------------------------
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": env("REDIS_URL", "redis://127.0.0.1:6379/1"),
+        # Si Redis no responde, no colgar la request: se cae a la base.
+        "OPTIONS": {"socket_connect_timeout": 1, "socket_timeout": 1},
     }
+}
+
+# ---------------------------------------------------------------------------
+# Mensajeria (RabbitMQ): eventos TurnoCreado / TurnoAtendido
+# ---------------------------------------------------------------------------
+RABBITMQ_URL = env(
+    "RABBITMQ_URL",
+    "amqp://guest:guest@127.0.0.1:5672/%2F?connection_attempts=1&socket_timeout=2",
+)
+
+# ---------------------------------------------------------------------------
+# Logs: los errores de cache y mensajeria se ven en consola
+# ---------------------------------------------------------------------------
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"consola": {"class": "logging.StreamHandler"}},
+    "loggers": {"apps": {"handlers": ["consola"], "level": "INFO"}},
 }

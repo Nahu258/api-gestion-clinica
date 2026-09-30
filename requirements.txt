@@ -3,3 +3,6 @@ Django==6.1
 djangorestframework==3.18.0
 python-dotenv==1.2.3
 django-cors-headers==4.9.0
+# AE2: cliente de RabbitMQ (mensajeria) y de Redis (cache de Django)
+pika==1.4.4
+redis==8.1.0
