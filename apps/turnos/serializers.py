@@ -19,21 +19,23 @@ class TurnoSerializer(serializers.ModelSerializer):
     """Serializer de lectura y escritura de la entidad Turno."""
 
     # Campos calculados de solo lectura: etiquetas legibles para el front.
-    especialidad_legible = serializers.CharField(
-        source="medico.get_especialidad_display",
-        read_only=True,
-    )
+    especialidad_legible = serializers.SerializerMethodField()
     estado_legible = serializers.CharField(
         source="get_estado_display",
         read_only=True,
     )
+    paciente_nombre = serializers.SerializerMethodField()
+    medico_nombre = serializers.SerializerMethodField()
+
 
     class Meta:
         model = Turno
         fields = [
             "id",
-            "paciente",
-            "medico",
+            "paciente_id",
+            "medico_id",
+            "paciente_nombre",
+            "medico_nombre",
             "especialidad_legible",
             "fecha_hora",
             "estado",
@@ -48,6 +50,29 @@ class TurnoSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "creado_en", "actualizado_en"]
     # ----- Validaciones de campo: se llaman validate_<nombre_del_campo> -----
 
+    def get_especialidad_legible(self, obj) -> str:
+        from apps.clinica.services import obtener_medico
+        try:
+            medico = obtener_medico(obj.medico_id)
+            return medico.get_especialidad_display()
+        except Exception:
+            return "Desconocida"
+
+    def get_paciente_nombre(self, obj) -> str:
+        from apps.clinica.services import obtener_paciente
+        try:
+            paciente = obtener_paciente(obj.paciente_id)
+            return paciente.nombre
+        except Exception:
+            return "Desconocido"
+
+    def get_medico_nombre(self, obj) -> str:
+        from apps.clinica.services import obtener_medico
+        try:
+            medico = obtener_medico(obj.medico_id)
+            return medico.nombre
+        except Exception:
+            return "Desconocido"
 
     def validate_fecha_hora(self, valor):
         # En una creacion (self.instance is None) exigimos fecha futura.

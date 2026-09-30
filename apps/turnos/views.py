@@ -20,6 +20,7 @@ from rest_framework.views import APIView
 
 from apps.turnos import services
 from apps.turnos.serializers import TurnoSerializer
+from apps.clinica.services import obtener_paciente
 
 
 class TurnoListaAPIView(APIView):
@@ -113,7 +114,7 @@ class HistorialClinicoAPIView(APIView):
         return Response(
             {
                 "paciente_dni": dni,
-                "paciente_nombre": consultas[0].paciente.nombre if consultas else "Desconocido",
+                "paciente_nombre": obtener_paciente(consultas[0].paciente_id).nombre if consultas else "Desconocido",
                 "cantidad_consultas": len(serializer.data),
                 "consultas": serializer.data,
             },

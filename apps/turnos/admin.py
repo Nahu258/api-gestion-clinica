@@ -13,14 +13,27 @@ class TurnoAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "fecha_hora",
-        "paciente_nombre",
-        "paciente_dni",
-        "profesional",
-        "especialidad",
+        "get_paciente",
+        "get_medico",
         "estado",
     )
-    list_filter = ("estado", "especialidad", "profesional")
-    search_fields = ("paciente_nombre", "paciente_dni", "profesional")
+    list_filter = ("estado", "medico_id")
+    search_fields = ("paciente_id", "medico_id")
+
+    def get_paciente(self, obj):
+        from apps.clinica.services import obtener_paciente
+        try:
+            p = obtener_paciente(obj.paciente_id)
+            return f"{p.nombre} ({p.dni})"
+        except: return str(obj.paciente_id)
+    get_paciente.short_description = 'Paciente'
+
+    def get_medico(self, obj):
+        from apps.clinica.services import obtener_medico
+        try:
+            return obtener_medico(obj.medico_id).nombre
+        except: return str(obj.medico_id)
+    get_medico.short_description = 'Medico'
     ordering = ("fecha_hora",)
     date_hierarchy = "fecha_hora"
 
@@ -30,10 +43,7 @@ class TurnoAdmin(admin.ModelAdmin):
             "Paciente",
             {
                 "fields": (
-                    "paciente_nombre",
-                    "paciente_dni",
-                    "paciente_telefono",
-                    "obra_social",
+                    "paciente_id",
                 )
             },
         ),
@@ -41,8 +51,7 @@ class TurnoAdmin(admin.ModelAdmin):
             "Turno",
             {
                 "fields": (
-                    "profesional",
-                    "especialidad",
+                    "medico_id",
                     "fecha_hora",
                     "estado",
                     "motivo_consulta",
