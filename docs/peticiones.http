@@ -1,5 +1,5 @@
 ### =====================================================================
-### Coleccion de pruebas de la API (live testing del AE1)
+### Coleccion de pruebas de la API (live testing (AE1 + AE2))
 ###
 ### Como usarlo en VS Code:
 ###   1. Instalar la extension "REST Client" (humao.rest-client).
@@ -29,12 +29,12 @@ GET {{base}}/turnos?estado=pendiente
 Accept: application/json
 
 
-### [200] Listar filtrando por especialidad
+### [200] Listar filtrando por especialidad (la del medico, via modulo Clinica)
 GET {{base}}/turnos?especialidad=pediatria
 Accept: application/json
 
 
-### [200] Buscar por paciente, DNI o profesional
+### [200] Buscar por nombre o DNI del paciente, o nombre del medico
 GET {{base}}/turnos?buscar=gomez
 Accept: application/json
 
@@ -65,18 +65,17 @@ Accept: application/json
 
 
 ### [201] Registrar un turno valido  (OJO: la fecha debe ser futura)
+### Los IDs salen de `python manage.py seed_turnos` sobre una base nueva:
+###   pacientes 1 Maria Gomez, 2 Juan Perez, 3 Sofia Duarte, 4 Diego Ramirez
+###   medicos   1 Benitez (clinica), 2 Aguirre (trauma), 3 Ibarra (pediatria), 4 Ferreyra (cardio)
 POST {{base}}/turnos
 Content-Type: application/json
 
 {
-  "paciente_nombre": "Ana Lopez",
-  "paciente_dni": "38444555",
-  "paciente_telefono": "3764-112233",
-  "obra_social": "OSDE 310",
-  "profesional": "Dra. Carla Ibarra",
-  "especialidad": "ginecologia",
+  "paciente_id": 3,
+  "medico_id": 3,
   "fecha_hora": "2027-03-15T14:00:00-03:00",
-  "motivo_consulta": "Control ginecologico anual."
+  "motivo_consulta": "Control pediatrico anual."
 }
 
 
@@ -87,16 +86,13 @@ Content-Type: application/json
 {}
 
 
-### [400] DNI con letras
+### [400] Paciente inexistente en el modulo Clinica
 POST {{base}}/turnos
 Content-Type: application/json
 
 {
-  "paciente_nombre": "Carlos Ruiz",
-  "paciente_dni": "ABC123",
-  "paciente_telefono": "3764-556677",
-  "profesional": "Dr. Martin Aguirre",
-  "especialidad": "traumatologia",
+  "paciente_id": 9999,
+  "medico_id": 2,
   "fecha_hora": "2027-05-10T10:00:00-03:00"
 }
 
@@ -106,53 +102,30 @@ POST {{base}}/turnos
 Content-Type: application/json
 
 {
-  "paciente_nombre": "Carlos Ruiz",
-  "paciente_dni": "29888777",
-  "paciente_telefono": "3764-556677",
-  "profesional": "Dr. Martin Aguirre",
-  "especialidad": "traumatologia",
+  "paciente_id": 2,
+  "medico_id": 2,
   "fecha_hora": "2020-01-01T10:00:00-03:00"
 }
 
 
-### [400] Especialidad 'otra' sin motivo de consulta
+### [409] El medico ya tiene un turno en ese horario
 POST {{base}}/turnos
 Content-Type: application/json
 
 {
-  "paciente_nombre": "Carlos Ruiz",
-  "paciente_dni": "29888777",
-  "paciente_telefono": "3764-556677",
-  "profesional": "Dr. Martin Aguirre",
-  "especialidad": "otra",
-  "fecha_hora": "2027-05-10T10:00:00-03:00"
-}
-
-
-### [409] El profesional ya tiene un turno en ese horario
-POST {{base}}/turnos
-Content-Type: application/json
-
-{
-  "paciente_nombre": "Pedro Sosa",
-  "paciente_dni": "31555444",
-  "paciente_telefono": "3764-887766",
-  "profesional": "Dra. Carla Ibarra",
-  "especialidad": "pediatria",
+  "paciente_id": 2,
+  "medico_id": 3,
   "fecha_hora": "2027-03-15T14:10:00-03:00"
 }
 
 
-### [201] Otro profesional SI puede atender a la misma hora
+### [201] Otro medico SI puede atender a la misma hora
 POST {{base}}/turnos
 Content-Type: application/json
 
 {
-  "paciente_nombre": "Pedro Sosa",
-  "paciente_dni": "31555444",
-  "paciente_telefono": "3764-887766",
-  "profesional": "Dr. Nicolas Ferreyra",
-  "especialidad": "cardiologia",
+  "paciente_id": 2,
+  "medico_id": 4,
   "fecha_hora": "2027-03-15T14:00:00-03:00",
   "motivo_consulta": "Chequeo pre-competencia deportiva."
 }
@@ -163,12 +136,8 @@ PUT {{base}}/turnos/1
 Content-Type: application/json
 
 {
-  "paciente_nombre": "Maria Gomez",
-  "paciente_dni": "30111222",
-  "paciente_telefono": "3764-551122",
-  "obra_social": "IOSFA",
-  "profesional": "Dra. Laura Benitez",
-  "especialidad": "clinica_medica",
+  "paciente_id": 1,
+  "medico_id": 1,
   "estado": "confirmado",
   "fecha_hora": "2027-06-01T09:00:00-03:00",
   "motivo_consulta": "Reprogramado a pedido del paciente.",
@@ -219,3 +188,28 @@ Accept: application/json
 ### [405] Verbo no permitido en la coleccion
 DELETE {{base}}/turnos
 Accept: application/json
+
+
+### =====================================================================
+### AE2: control de concurrencia optimista (campo "version")
+### Simula dos profesionales que abrieron el turno 2 en version 0.
+### =====================================================================
+
+### [200] El profesional A guarda con la version que leyo (0) -> pasa a 1
+PATCH {{base}}/turnos/2
+Content-Type: application/json
+
+{
+  "motivo_consulta": "Editado por el profesional A",
+  "version": 0
+}
+
+
+### [409] El profesional B guarda con la version vieja (0) -> se rechaza
+PATCH {{base}}/turnos/2
+Content-Type: application/json
+
+{
+  "motivo_consulta": "Editado por el profesional B",
+  "version": 0
+}

@@ -1,11 +1,12 @@
-# AE1 — API RESTful de Gestión de Turnos e Historial Clínico
+# API RESTful de Gestión de Turnos e Historial Clínico — AE2
 
 **Materia:** Paradigmas y Lenguajes de Programación III — UCP / FAITA
-**Stack:** Python 3.13 · Django 6.1 · Django REST Framework 3.18 · SQLite
+**Stack:** Python 3.13 · Django 6.1 · Django REST Framework 3.18 · SQLite · Redis · RabbitMQ
 
-> **Estado: andamiaje inicial.** Está el esqueleto completo funcionando de punta
-> a punta con la entidad principal (`Turno`). Lo que falta es tuyo: el informe
-> técnico, el repositorio público propio y las entidades secundarias.
+> **AE1 → AE2.** La versión grupal de AE1 es el commit `8ebf707` de `main`.
+> Esta rama (`ae2/nahuel`) es la evolución individual: módulos Clínica y Turnos
+> desacoplados, caché con Redis, eventos con RabbitMQ y control de concurrencia.
+> Lo nuevo de AE2 está resumido en la sección 5.
 
 ## Dominio
 
@@ -17,13 +18,31 @@ clínico** del paciente (diagnóstico e indicaciones de cada consulta atendida).
 
 ## 1. Arranque rápido
 
-Desde esta carpeta, en la terminal de VS Code (PowerShell):
+### Opción A: Docker (API + consumidor + Redis + RabbitMQ)
+
+```powershell
+docker compose up --build
+```
+
+Levanta cuatro contenedores, aplica las migraciones y carga datos de ejemplo.
+API en <http://localhost:8000/api/v1>; panel de RabbitMQ en
+<http://localhost:15672> (usuario y contraseña `guest`).
+
+### Opción B: local, con entorno virtual
+
+Necesitás Redis en `127.0.0.1:6379` y RabbitMQ en `127.0.0.1:5672`. La forma
+más simple es levantar solo esos dos con Docker:
+`docker compose up redis rabbitmq`.
 
 ```powershell
 .\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env
 python manage.py migrate
 python manage.py seed_turnos
 python manage.py runserver
+# en otra terminal: el consumidor de eventos
+python manage.py consume_rabbitmq
 ```
 
 Abrí <http://127.0.0.1:8000/api/v1> y vas a ver el mapa de rutas.
@@ -31,15 +50,25 @@ Abrí <http://127.0.0.1:8000/api/v1> y vas a ver el mapa de rutas.
 > Si PowerShell bloquea el script de activación, corré una sola vez:
 > `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
 
+> **Base de AE1 existente.** La migración `turnos/0002_desacoplar_clinica`
+> mueve los pacientes y profesionales de los turnos viejos a las tablas de
+> Clínica. Si tu `db.sqlite3` se creó con una versión intermedia de esta rama
+> (con la `0001` reescrita), borrala y corré `migrate` de nuevo.
+
+Si Redis o RabbitMQ no están levantados, la API **sigue respondiendo**: el
+historial se lee directo de la base y los eventos que no se pueden publicar
+quedan registrados en el log.
+
 Comandos útiles:
 
 | Comando | Para qué sirve |
 |---|---|
-| `python manage.py runserver` | Levanta el servidor (toma el puerto de `.env`) |
-| `python manage.py test` | Corre los 17 tests automáticos |
+| `python manage.py runserver` | Levanta el servidor |
+| `python manage.py consume_rabbitmq` | Consumidor de la cola `eventos_clinica` |
+| `python manage.py test` | Corre los 40 tests (no necesitan Redis ni RabbitMQ) |
 | `python manage.py makemigrations` | Traduce cambios de `models.py` a migraciones |
 | `python manage.py migrate` | Aplica esas migraciones a la base |
-| `python manage.py seed_turnos --limpiar` | Recarga datos de ejemplo |
+| `python manage.py seed_turnos --limpiar` | Recarga pacientes, médicos y turnos de ejemplo |
 | `python manage.py createsuperuser` | Crea el usuario del panel `/admin` |
 
 ---
@@ -50,8 +79,10 @@ La consigna exige **arquitectura en capas** y prohíbe archivos monolíticos.
 La regla es: *cada capa hace una sola cosa y solo conoce a la de abajo*.
 
 ```
-AE1 - Paradigmas/
+api-gestion-clinica/
 ├── manage.py                   ← puerta de entrada a todos los comandos
+├── Dockerfile                  ← imagen de la API (y del consumidor)
+├── docker-compose.yml          ← API + consumidor + Redis + RabbitMQ
 ├── .env                        ← configuración que cambia según la máquina
 ├── .env.example                ← plantilla del .env (esta SÍ va a Git)
 ├── .gitignore                  ← qué NO subir al repo
@@ -69,18 +100,25 @@ AE1 - Paradigmas/
 │   └── handlers.py             ← respuestas JSON para rutas inexistentes
 │
 ├── apps/                       ← MÓDULOS DE DOMINIO
+│   ├── clinica/                ← AE2: dueño de Paciente y Medico
+│   │   ├── models.py           ← tablas pacientes y medicos
+│   │   └── services.py         ← ÚNICA puerta de entrada para otros módulos
 │   └── turnos/
 │       ├── models.py           ← CAPA DE DATOS       (cómo se guarda)
 │       ├── serializers.py      ← CAPA DE VALIDACIÓN  (JSON ↔ Python)
 │       ├── services.py         ← CAPA DE NEGOCIO     (qué hace el sistema)
+│       ├── eventos.py          ← AE2: productor y lógica del consumidor (RabbitMQ)
 │       ├── views.py            ← CAPA DE CONTROLADOR (traduce HTTP)
 │       ├── urls.py             ← CAPA DE RUTAS       (qué URL va a qué vista)
 │       ├── admin.py            ← panel de carga manual de datos
 │       ├── tests.py            ← pruebas automáticas
-│       └── management/commands/seed_turnos.py  ← carga datos de ejemplo
+│       └── management/commands/
+│           ├── seed_turnos.py      ← carga datos de ejemplo
+│           └── consume_rabbitmq.py ← AE2: consumidor de la cola
 │
 └── docs/
-    └── peticiones.http         ← colección de pruebas para el live testing
+    ├── peticiones.http         ← colección de pruebas (extensión REST Client)
+    └── coleccion-postman.json  ← la misma colección para Postman
 ```
 
 ### El detalle, capa por capa
@@ -111,13 +149,13 @@ Git junto al código.
 **`apps/turnos/serializers.py` — Capa de Validación.**
 Traduce en las dos direcciones: objeto `Turno` → JSON de salida, y JSON de
 entrada → datos limpios y validados.
-*Por qué:* es donde vive el **400 Bad Request** que pide la consigna. Si el DNI
-trae letras o falta un campo, el serializer corta ahí y devuelve el error
+*Por qué:* es donde vive el **400 Bad Request** que pide la consigna. Si falta un
+campo o el `paciente_id` no existe, el serializer corta ahí y devuelve el error
 indicando exactamente qué campo falló.
 
 **`apps/turnos/services.py` — Capa de Lógica de Negocio.**
 Acá está el "qué hace" el sistema: buscar, crear, actualizar, borrar, armar el
-historial de un paciente, y las reglas propias de la clínica (un profesional no
+historial de un paciente, y las reglas propias de la clínica (un médico no
 puede tener dos turnos solapados, una consulta atendida no se borra).
 *Por qué:* **esta capa no sabe qué es HTTP.** No recibe `request` ni devuelve
 `Response`. Gracias a eso, la misma lógica sirve para la API, para un comando
@@ -161,8 +199,9 @@ Django.
 filtrarle el stack trace al cliente.
 
 **`apps/turnos/tests.py` — Pruebas automáticas.**
-17 tests que verifican cada código de estado (200, 201, 204, 400, 404, 405,
-409, 500) y las reglas de negocio.
+40 tests que verifican cada código de estado (200, 201, 204, 400, 404, 405,
+409, 500), las reglas de negocio y, desde AE2, la caché, los eventos, la
+idempotencia del consumidor y el control de concurrencia.
 *Por qué:* si algo se rompe media hora antes de la defensa, un
 `python manage.py test` te dice qué exactamente. Además es evidencia concreta
 de calidad para la rúbrica.
@@ -202,62 +241,113 @@ Base: `http://127.0.0.1:8000/api/v1`
 |---|---|---|---|
 | `GET` | `/turnos` | `200 OK` | `400` filtro inválido |
 | `GET` | `/turnos?estado=&especialidad=&buscar=` | `200 OK` | `400` |
-| `POST` | `/turnos` | `201 Created` + `Location` | `400` campos, `409` profesional ocupado |
+| `POST` | `/turnos` | `201 Created` + `Location` | `400` campos o paciente/médico inexistente, `409` médico ocupado |
 | `GET` | `/turnos/{id}` | `200 OK` | `404 Not Found` |
-| `PUT` | `/turnos/{id}` | `200 OK` | `400`, `404`, `409` |
-| `PATCH` | `/turnos/{id}` | `200 OK` | `400`, `404`, `409` |
+| `PUT` | `/turnos/{id}` | `200 OK` | `400`, `404`, `409` médico ocupado, turno atendido o `version` desactualizada |
+| `PATCH` | `/turnos/{id}` | `200 OK` | `400`, `404`, `409` (ídem PUT) |
 | `DELETE` | `/turnos/{id}` | `204 No Content` | `404`, `409` si está en atención o ya atendido |
-| `GET` | `/pacientes/{dni}/historial` | `200 OK` | `400` DNI inválido, `404` sin consultas |
+| `GET` | `/pacientes/{dni}/historial` | `200 OK` | `400` DNI inválido, `404` paciente inexistente o sin consultas |
 
 Cualquier verbo no soportado devuelve `405 Method Not Allowed`, y cualquier
 fallo imprevisto `500 Internal Server Error` — los dos en el mismo formato JSON.
 
 Para probarlos: abrí `docs/peticiones.http` en VS Code con la extensión
-**REST Client**, o replicá esas mismas peticiones en Postman / Thunder Client.
+**REST Client**, o importá `docs/coleccion-postman.json` en Postman. Los IDs
+de los ejemplos son los que crea `seed_turnos` sobre una base nueva.
+
+### Cuerpo de un turno (AE2)
+
+```json
+{
+  "paciente_id": 1,
+  "medico_id": 3,
+  "fecha_hora": "2027-03-15T14:00:00-03:00",
+  "estado": "pendiente",
+  "motivo_consulta": "Control pediatrico anual.",
+  "diagnostico": "",
+  "indicaciones": "",
+  "version": 0
+}
+```
+
+La respuesta agrega, calculados a partir del módulo Clínica y de solo lectura:
+`paciente_nombre`, `medico_nombre`, `especialidad_legible` y `estado_legible`.
+
+> **Cambio de contrato respecto de AE1.** Los campos `paciente_nombre`,
+> `paciente_dni`, `paciente_telefono`, `obra_social`, `profesional` y
+> `especialidad` ya no se envían: se reemplazan por `paciente_id` y `medico_id`.
+
+### Reglas de negocio
+
+1. Un **médico** no puede tener dos turnos dentro de los mismos 20 minutos
+   → `409 Conflict`. Dos médicos distintos **sí** pueden atender a la misma hora.
+2. Para marcar un turno como `atendido` hay que cargar el `diagnostico` → `400`.
+3. Un turno `atendido` no se puede modificar ni eliminar: ya forma parte del
+   historial clínico del paciente → `409 Conflict`.
+4. Si el médico es de especialidad `otra`, el `motivo_consulta` es obligatorio → `400`.
+5. `paciente_id` y `medico_id` tienen que existir en el módulo Clínica → `400`.
+6. `GET /pacientes/{dni}/historial` devuelve **solo** las consultas atendidas,
+   de la más reciente a la más antigua.
 
 ---
 
-## 5. Modelo de dominio
+## 5. AE2: arquitectura y comunicación
 
-**Entidad principal del AE1: `Turno`** (la única implementada, como pide la consigna).
+### Módulos y propiedad de datos
 
-| Campo | Tipo | Notas |
+| Módulo | Datos que administra | Cómo accede a datos ajenos |
 |---|---|---|
-| `id` | entero | autogenerado |
-| `paciente_nombre` | texto (120) | obligatorio, mín. 3 caracteres |
-| `paciente_dni` | texto (10) | obligatorio, 7–8 dígitos; se normaliza (`38.444.555` → `38444555`) |
-| `paciente_telefono` | texto (30) | obligatorio, mín. 6 dígitos |
-| `obra_social` | texto (80) | opcional |
-| `profesional` | texto (120) | obligatorio |
-| `especialidad` | opciones | `clinica_medica`, `pediatria`, `cardiologia`, `traumatologia`, `ginecologia`, `otra` |
-| `fecha_hora` | fecha y hora | obligatorio, debe ser futura al crear |
-| `estado` | opciones | `pendiente`, `confirmado`, `en_atencion`, `atendido`, `cancelado`, `ausente` |
-| `motivo_consulta` | texto largo | obligatorio si `especialidad = otra` |
-| `diagnostico` | texto largo | historial clínico; obligatorio para pasar a `atendido` |
-| `indicaciones` | texto largo | historial clínico: tratamiento indicado |
-| `creado_en` / `actualizado_en` | fecha y hora | los completa Django solo |
+| Clínica (`apps/clinica`) | tablas `pacientes` y `medicos` | — |
+| Turnos (`apps/turnos`) | tabla `turnos` (`paciente_id`, `medico_id`, `version`) | Solo por `apps/clinica/services.py`, nunca por sus modelos o tablas |
 
-### Reglas de negocio implementadas
+`Turno` guarda IDs sin `ForeignKey`: el esquema de Turnos no depende del de
+Clínica y cada módulo puede pasar a su propia base (AE4) sin cambiar el modelo.
+Hoy comparten la instancia SQLite (separación lógica, no física). Al listar,
+los nombres de pacientes y médicos se piden a Clínica en bloque (2 consultas
+en total, no 3 por turno).
 
-1. Un **profesional** no puede tener dos turnos dentro de los mismos 20 minutos
-   → `409 Conflict`. Dos profesionales distintos **sí** pueden atender a la misma
-   hora: la clínica tiene varios consultorios.
-2. Para marcar un turno como `atendido` hay que cargar el `diagnostico`
-   → si no, `400 Bad Request`.
-3. Un turno `atendido` no se puede modificar ni eliminar: ya forma parte del
-   historial clínico del paciente → `409 Conflict`.
-4. `GET /pacientes/{dni}/historial` devuelve **solo** las consultas atendidas,
-   de la más reciente a la más antigua.
+### Eventos (RabbitMQ)
 
-### Entidades del dominio completo
+Cola `eventos_clinica`, durable, mensajes JSON persistentes. Cada mensaje
+lleva un `evento_id` (UUID) único.
 
-Para describir en el informe y desarrollar en el AE2: `Paciente`, `Medico`,
-`Especialidad`, `ObraSocial`, `HistoriaClinica`, `Receta`.
+| Evento | Productor | Payload | Consumidor |
+|---|---|---|---|
+| `TurnoCreado` | `services.crear_turno` | `evento_id`, `turno_id`, `paciente_id`, `medico_id`, `fecha_hora` | — (disponible para notificaciones) |
+| `TurnoAtendido` | `services.actualizar_turno`, al pasar a `atendido` | `evento_id`, `turno_id`, `paciente_id`, `diagnostico`, `indicaciones` | `consume_rabbitmq` |
+| `TurnoAtendido` externo | otro sistema (ej. consultorio) | ídem | `consume_rabbitmq`: marca el turno como atendido |
 
-Hoy los datos del paciente y del profesional viven **dentro** de `Turno` a
-propósito, para mantener acotado el primer hito. En el AE2 se extraen a sus
-propias tablas y `Turno` pasa a tener claves foráneas (`ForeignKey`) hacia
-ellas — ese es justamente el "próximo paso" que pide el informe.
+Reintentos y fallos:
+
+- Si RabbitMQ no responde al publicar, el error va al log y la request termina
+  bien (el turno ya se guardó). No hay outbox: ese evento se pierde.
+- El consumidor procesa de a un mensaje (`prefetch_count=1`) y confirma con
+  `ack` recién después de procesar.
+- Si el procesamiento falla, el mensaje vuelve a la cola una vez (`nack` con
+  `requeue`); si falla en la reentrega, se descarta. Un JSON inválido se
+  descarta directamente.
+- Un mensaje repetido no se aplica dos veces (ver idempotencia).
+- El consumidor aplica el evento sin volver a publicarlo.
+
+### Redis
+
+| Clave | Contenido | TTL | Invalidación |
+|---|---|---|---|
+| `historial_paciente_{dni}` | IDs de los turnos atendidos | 1 h | Se borra cuando un turno de ese paciente pasa a `atendido` |
+| `procesado_{evento_id}` | marca de evento procesado | 24 h | Por expiración; se borra si el procesamiento falla |
+
+Si Redis no responde, el historial se consulta directo en la base.
+
+### Concurrencia e idempotencia
+
+- **Edición concurrente de un turno (bloqueo optimista).** Cada turno tiene
+  `version`. El guardado es un `UPDATE ... WHERE id = ? AND version = ?` que
+  incrementa la versión; si otra request lo modificó antes, no afecta filas y
+  la API responde `409`. El cliente puede enviar la `version` que leyó; si no
+  la envía, se usa la que tenía el turno al cargarlo.
+- **Mensaje repetido.** El consumidor toma la marca `procesado_{evento_id}`
+  con `cache.add` (`SET NX` en Redis, atómico): solo un consumidor la obtiene.
+  Además, un turno que ya está `atendido` no se vuelve a modificar.
 
 ---
 
@@ -277,30 +367,18 @@ ellas — ese es justamente el "próximo paso" que pide el informe.
 
 ---
 
-## 7. Lo que falta para entregar el AE1
+## 7. Modelo de ejecución
 
-- [ ] Crear el **repositorio público propio** en GitHub con nombre representativo
-      (ej. `api-gestion-clinica`).
-- [ ] Commits semánticos **de los dos integrantes** (`feat:`, `fix:`, `docs:`).
-- [ ] Informe técnico en PDF (máx. 2 páginas de cuerpo) con los 9 apartados.
-- [ ] Mínimo 4 requerimientos funcionales y 4 no funcionales.
-- [ ] Diagrama de capas / entidad-relación / mapa de rutas.
-- [ ] Justificar el modelo de ejecución (WSGI síncrono vs. ASGI asíncrono).
-- [ ] Capturas del live testing y del historial de commits para el anexo.
-- [ ] Subir el PDF a Moodle como `AE1_GrupoX_[Nombres]`.
-
-### Sobre el apartado de concurrencia
-
-Es el punto que más se olvida. Para fundamentarlo: este proyecto corre hoy
-sobre **WSGI**, un modelo **síncrono y bloqueante**, donde el servidor atiende
-cada request en un hilo de un pool. Django también soporta **ASGI** (ya está
-generado `config/asgi.py`), que habilita vistas `async` y un modelo **no
-bloqueante**, conveniente cuando hay mucha espera de I/O. Para un CRUD contra
-SQLite, WSGI es la elección correcta, y esa es la justificación a escribir.
+Este proyecto corre sobre **WSGI**, un modelo **síncrono y bloqueante**, donde
+el servidor atiende cada request en un hilo de un pool. Django también soporta
+**ASGI** (ya está generado `config/asgi.py`), que habilita vistas `async` y un
+modelo **no bloqueante**. En AE2, lo que no necesita bloquear al usuario (los
+efectos posteriores a atender un turno) sale del flujo principal por RabbitMQ
+y lo procesa un consumidor en otro proceso.
 
 ### Nota sobre datos sensibles
 
-El historial clínico es información de salud. Para el AE1 los datos son
-ficticios, pero es un buen argumento para el apartado de **requerimientos no
-funcionales**: autenticación, control de acceso por rol (recepción vs. médico)
-y registro de auditoría son deuda explícita a resolver en el AE2.
+El historial clínico es información de salud. Los datos de ejemplo son
+ficticios. Autenticación, control de acceso por rol (recepción vs. médico) y
+registro de auditoría siguen siendo deuda explícita: quedaron fuera del
+alcance de AE2 y se planifican para AE4.

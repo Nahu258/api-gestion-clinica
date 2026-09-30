@@ -1,52 +1,133 @@
 {
   "info": {
-    "name": "AE1 - API Gestion de Turnos e Historial Clinico",
-    "description": "Coleccion de live testing del AE1 (PyLP III - UCP/FAITA). El nombre de cada request indica el codigo de estado HTTP esperado. Correr en orden: algunos dependen del estado que deja el anterior.",
+    "name": "AE2 - API Gestion de Turnos e Historial Clinico",
+    "description": "Coleccion de live testing (PyLP III - UCP/FAITA), actualizada al esquema de AE2: los turnos referencian paciente_id y medico_id del modulo Clinica. Correr despues de `python manage.py seed_turnos` sobre una base nueva y en orden: algunos requests dependen del anterior.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "base", "value": "http://127.0.0.1:8000/api/v1" }
+    {
+      "key": "base",
+      "value": "http://127.0.0.1:8000/api/v1"
+    }
   ],
   "item": [
     {
       "name": "01 [200] Mapa de rutas de la API",
       "request": {
         "method": "GET",
-        "header": [{ "key": "Accept", "value": "application/json" }],
-        "url": { "raw": "{{base}}", "host": ["{{base}}"] }
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}",
+          "host": [
+            "{{base}}"
+          ]
+        }
       }
     },
     {
       "name": "02 [200] Listar todos los turnos",
       "request": {
         "method": "GET",
-        "header": [{ "key": "Accept", "value": "application/json" }],
-        "url": { "raw": "{{base}}/turnos", "host": ["{{base}}"], "path": ["turnos"] }
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/turnos",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos"
+          ]
+        }
       }
     },
     {
       "name": "03 [200] Listar filtrando por estado",
       "request": {
         "method": "GET",
-        "header": [{ "key": "Accept", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
         "url": {
           "raw": "{{base}}/turnos?estado=pendiente",
-          "host": ["{{base}}"],
-          "path": ["turnos"],
-          "query": [{ "key": "estado", "value": "pendiente" }]
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos"
+          ],
+          "query": [
+            {
+              "key": "estado",
+              "value": "pendiente"
+            }
+          ]
         }
       }
     },
     {
-      "name": "04 [200] Buscar por paciente, DNI o profesional",
+      "name": "03b [200] Filtrar por especialidad del medico",
       "request": {
         "method": "GET",
-        "header": [{ "key": "Accept", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/turnos?especialidad=pediatria",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos"
+          ],
+          "query": [
+            {
+              "key": "especialidad",
+              "value": "pediatria"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "04 [200] Buscar por nombre o DNI del paciente, o nombre del medico",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
         "url": {
           "raw": "{{base}}/turnos?buscar=gomez",
-          "host": ["{{base}}"],
-          "path": ["turnos"],
-          "query": [{ "key": "buscar", "value": "gomez" }]
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos"
+          ],
+          "query": [
+            {
+              "key": "buscar",
+              "value": "gomez"
+            }
+          ]
         }
       }
     },
@@ -54,12 +135,26 @@
       "name": "05 [400] Filtro con un estado inexistente",
       "request": {
         "method": "GET",
-        "header": [{ "key": "Accept", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
         "url": {
           "raw": "{{base}}/turnos?estado=inventado",
-          "host": ["{{base}}"],
-          "path": ["turnos"],
-          "query": [{ "key": "estado", "value": "inventado" }]
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos"
+          ],
+          "query": [
+            {
+              "key": "estado",
+              "value": "inventado"
+            }
+          ]
         }
       }
     },
@@ -67,144 +162,339 @@
       "name": "06 [200] Obtener un turno por id",
       "request": {
         "method": "GET",
-        "header": [{ "key": "Accept", "value": "application/json" }],
-        "url": { "raw": "{{base}}/turnos/1", "host": ["{{base}}"], "path": ["turnos", "1"] }
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/turnos/1",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos",
+            "1"
+          ]
+        }
       }
     },
     {
       "name": "07 [404] Obtener un turno inexistente",
       "request": {
         "method": "GET",
-        "header": [{ "key": "Accept", "value": "application/json" }],
-        "url": { "raw": "{{base}}/turnos/9999", "host": ["{{base}}"], "path": ["turnos", "9999"] }
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/turnos/9999",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos",
+            "9999"
+          ]
+        }
       }
     },
     {
       "name": "08 [201] Registrar un turno valido",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
-          "options": { "raw": { "language": "json" } },
-          "raw": "{\n  \"paciente_nombre\": \"Ana Lopez\",\n  \"paciente_dni\": \"38444555\",\n  \"paciente_telefono\": \"3764-112233\",\n  \"obra_social\": \"OSDE 310\",\n  \"profesional\": \"Dra. Carla Ibarra\",\n  \"especialidad\": \"ginecologia\",\n  \"fecha_hora\": \"2027-03-15T14:00:00-03:00\",\n  \"motivo_consulta\": \"Control ginecologico anual.\"\n}"
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\n  \"paciente_id\": 3,\n  \"medico_id\": 3,\n  \"fecha_hora\": \"2027-03-15T14:00:00-03:00\",\n  \"motivo_consulta\": \"Control pediatrico anual.\"\n}"
         },
-        "url": { "raw": "{{base}}/turnos", "host": ["{{base}}"], "path": ["turnos"] }
+        "url": {
+          "raw": "{{base}}/turnos",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos"
+          ]
+        }
       }
     },
     {
       "name": "09 [400] Registrar sin los campos obligatorios",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
-          "options": { "raw": { "language": "json" } },
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
           "raw": "{}"
         },
-        "url": { "raw": "{{base}}/turnos", "host": ["{{base}}"], "path": ["turnos"] }
+        "url": {
+          "raw": "{{base}}/turnos",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos"
+          ]
+        }
       }
     },
     {
-      "name": "10 [400] DNI con letras",
+      "name": "10 [400] Paciente inexistente",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
-          "options": { "raw": { "language": "json" } },
-          "raw": "{\n  \"paciente_nombre\": \"Carlos Ruiz\",\n  \"paciente_dni\": \"ABC123\",\n  \"paciente_telefono\": \"3764-556677\",\n  \"profesional\": \"Dr. Martin Aguirre\",\n  \"especialidad\": \"traumatologia\",\n  \"fecha_hora\": \"2027-05-10T10:00:00-03:00\"\n}"
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\n  \"paciente_id\": 9999,\n  \"medico_id\": 1,\n  \"fecha_hora\": \"2027-05-10T10:00:00-03:00\"\n}"
         },
-        "url": { "raw": "{{base}}/turnos", "host": ["{{base}}"], "path": ["turnos"] }
+        "url": {
+          "raw": "{{base}}/turnos",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos"
+          ]
+        }
       }
     },
     {
-      "name": "11 [400] Especialidad otra sin motivo de consulta",
+      "name": "11 [400] Medico inexistente",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
-          "options": { "raw": { "language": "json" } },
-          "raw": "{\n  \"paciente_nombre\": \"Carlos Ruiz\",\n  \"paciente_dni\": \"29888777\",\n  \"paciente_telefono\": \"3764-556677\",\n  \"profesional\": \"Dr. Martin Aguirre\",\n  \"especialidad\": \"otra\",\n  \"fecha_hora\": \"2027-05-10T10:00:00-03:00\"\n}"
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\n  \"paciente_id\": 1,\n  \"medico_id\": 9999,\n  \"fecha_hora\": \"2027-05-10T10:00:00-03:00\"\n}"
         },
-        "url": { "raw": "{{base}}/turnos", "host": ["{{base}}"], "path": ["turnos"] }
+        "url": {
+          "raw": "{{base}}/turnos",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos"
+          ]
+        }
       }
     },
     {
-      "name": "12 [409] El profesional ya tiene turno en ese horario",
+      "name": "12 [409] El medico ya tiene turno en ese horario",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
-          "options": { "raw": { "language": "json" } },
-          "raw": "{\n  \"paciente_nombre\": \"Pedro Sosa\",\n  \"paciente_dni\": \"31555444\",\n  \"paciente_telefono\": \"3764-887766\",\n  \"profesional\": \"Dra. Carla Ibarra\",\n  \"especialidad\": \"pediatria\",\n  \"fecha_hora\": \"2027-03-15T14:10:00-03:00\"\n}"
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\n  \"paciente_id\": 2,\n  \"medico_id\": 3,\n  \"fecha_hora\": \"2027-03-15T14:10:00-03:00\"\n}"
         },
-        "url": { "raw": "{{base}}/turnos", "host": ["{{base}}"], "path": ["turnos"] }
+        "url": {
+          "raw": "{{base}}/turnos",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos"
+          ]
+        }
       }
     },
     {
-      "name": "13 [201] Otro profesional SI puede a la misma hora",
+      "name": "13 [201] Otro medico SI puede a la misma hora",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
-          "options": { "raw": { "language": "json" } },
-          "raw": "{\n  \"paciente_nombre\": \"Pedro Sosa\",\n  \"paciente_dni\": \"31555444\",\n  \"paciente_telefono\": \"3764-887766\",\n  \"profesional\": \"Dr. Nicolas Ferreyra\",\n  \"especialidad\": \"cardiologia\",\n  \"fecha_hora\": \"2027-03-15T14:00:00-03:00\",\n  \"motivo_consulta\": \"Chequeo pre-competencia deportiva.\"\n}"
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\n  \"paciente_id\": 2,\n  \"medico_id\": 4,\n  \"fecha_hora\": \"2027-03-15T14:00:00-03:00\",\n  \"motivo_consulta\": \"Chequeo pre-competencia deportiva.\"\n}"
         },
-        "url": { "raw": "{{base}}/turnos", "host": ["{{base}}"], "path": ["turnos"] }
+        "url": {
+          "raw": "{{base}}/turnos",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos"
+          ]
+        }
       }
     },
     {
       "name": "14 [200] Modificar un solo campo (PATCH)",
       "request": {
         "method": "PATCH",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
-          "options": { "raw": { "language": "json" } },
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
           "raw": "{\n  \"estado\": \"confirmado\"\n}"
         },
-        "url": { "raw": "{{base}}/turnos/1", "host": ["{{base}}"], "path": ["turnos", "1"] }
+        "url": {
+          "raw": "{{base}}/turnos/1",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos",
+            "1"
+          ]
+        }
       }
     },
     {
       "name": "15 [400] Marcar atendido sin cargar diagnostico",
       "request": {
         "method": "PATCH",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
-          "options": { "raw": { "language": "json" } },
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
           "raw": "{\n  \"estado\": \"atendido\"\n}"
         },
-        "url": { "raw": "{{base}}/turnos/1", "host": ["{{base}}"], "path": ["turnos", "1"] }
+        "url": {
+          "raw": "{{base}}/turnos/1",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos",
+            "1"
+          ]
+        }
       }
     },
     {
       "name": "16 [200] Reemplazo completo del turno (PUT)",
       "request": {
         "method": "PUT",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
-          "options": { "raw": { "language": "json" } },
-          "raw": "{\n  \"paciente_nombre\": \"Maria Gomez\",\n  \"paciente_dni\": \"30111222\",\n  \"paciente_telefono\": \"3764-551122\",\n  \"obra_social\": \"IOSFA\",\n  \"profesional\": \"Dra. Laura Benitez\",\n  \"especialidad\": \"clinica_medica\",\n  \"estado\": \"confirmado\",\n  \"fecha_hora\": \"2027-06-01T09:00:00-03:00\",\n  \"motivo_consulta\": \"Reprogramado a pedido del paciente.\",\n  \"diagnostico\": \"\",\n  \"indicaciones\": \"\"\n}"
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\n  \"paciente_id\": 1,\n  \"medico_id\": 1,\n  \"estado\": \"confirmado\",\n  \"fecha_hora\": \"2027-06-01T09:00:00-03:00\",\n  \"motivo_consulta\": \"Reprogramado a pedido del paciente.\",\n  \"diagnostico\": \"\",\n  \"indicaciones\": \"\"\n}"
         },
-        "url": { "raw": "{{base}}/turnos/1", "host": ["{{base}}"], "path": ["turnos", "1"] }
+        "url": {
+          "raw": "{{base}}/turnos/1",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos",
+            "1"
+          ]
+        }
       }
     },
     {
       "name": "17 [200] Historial clinico del paciente",
       "request": {
         "method": "GET",
-        "header": [{ "key": "Accept", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
         "url": {
           "raw": "{{base}}/pacientes/30111222/historial",
-          "host": ["{{base}}"],
-          "path": ["pacientes", "30111222", "historial"]
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "pacientes",
+            "30111222",
+            "historial"
+          ]
         }
       }
     },
@@ -212,11 +502,22 @@
       "name": "18 [404] Historial de paciente sin consultas",
       "request": {
         "method": "GET",
-        "header": [{ "key": "Accept", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
         "url": {
           "raw": "{{base}}/pacientes/99999999/historial",
-          "host": ["{{base}}"],
-          "path": ["pacientes", "99999999", "historial"]
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "pacientes",
+            "99999999",
+            "historial"
+          ]
         }
       }
     },
@@ -224,16 +525,105 @@
       "name": "19 [204] Eliminar un turno pendiente",
       "request": {
         "method": "DELETE",
-        "header": [{ "key": "Accept", "value": "application/json" }],
-        "url": { "raw": "{{base}}/turnos/4", "host": ["{{base}}"], "path": ["turnos", "4"] }
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/turnos/4",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos",
+            "4"
+          ]
+        }
       }
     },
     {
       "name": "20 [405] Verbo no permitido en la coleccion",
       "request": {
         "method": "DELETE",
-        "header": [{ "key": "Accept", "value": "application/json" }],
-        "url": { "raw": "{{base}}/turnos", "host": ["{{base}}"], "path": ["turnos"] }
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/turnos",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos"
+          ]
+        }
+      }
+    },
+    {
+      "name": "21 [200] Editar turno enviando la version leida (0)",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\n  \"motivo_consulta\": \"Editado por el profesional A\",\n  \"version\": 0\n}"
+        },
+        "url": {
+          "raw": "{{base}}/turnos/2",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos",
+            "2"
+          ]
+        }
+      }
+    },
+    {
+      "name": "22 [409] Editar con version desactualizada (edicion concurrente)",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\n  \"motivo_consulta\": \"Editado por el profesional B\",\n  \"version\": 0\n}"
+        },
+        "url": {
+          "raw": "{{base}}/turnos/2",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos",
+            "2"
+          ]
+        }
       }
     }
   ]
