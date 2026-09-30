@@ -16,8 +16,14 @@ from datetime import timedelta
 
 from django.db.models import Q, QuerySet
 from django.core.cache import cache
+import json
+import pika
 
 from apps.turnos.models import Turno
+from apps.clinica.services import (
+    obtener_paciente, obtener_paciente_por_dni, 
+    buscar_pacientes_ids_por_nombre, buscar_medicos_ids_por_nombre
+)
 from core.exceptions import DatosInvalidos, RecursoNoEncontrado, ReglaDeNegocioViolada
 
 # Regla de negocio: cada consulta ocupa 20 minutos de la agenda del profesional.
@@ -55,10 +61,12 @@ def listar_turnos(
         turnos = turnos.filter(especialidad=especialidad)
 
     if buscar:
+        pacientes_ids = buscar_pacientes_ids_por_nombre(buscar)
+        medicos_ids = buscar_medicos_ids_por_nombre(buscar)
+        
         turnos = turnos.filter(
-            Q(paciente__nombre__icontains=buscar)
-            | Q(paciente__dni__icontains=buscar)
-            | Q(medico__nombre__icontains=buscar)
+            Q(paciente_id__in=pacientes_ids)
+            | Q(medico_id__in=medicos_ids)
         )
 
     return turnos
@@ -81,15 +89,18 @@ def obtener_historial_de_paciente(dni: str) -> QuerySet[Turno]:
     if not dni.isdigit():
         raise DatosInvalidos("El DNI del paciente solo puede contener numeros.")
 
+    # Validamos que el paciente exista llamando al otro servicio
+    paciente = obtener_paciente_por_dni(dni)
+
     cache_key = f"historial_paciente_{dni}"
     historial_ids = cache.get(cache_key)
 
     if historial_ids is not None:
-        # Recuperar de DB manteniendo orden (o se podria cachear completo)
+        # Recuperar de DB manteniendo orden
         return Turno.objects.filter(id__in=historial_ids).order_by("-fecha_hora")
 
     historial = Turno.objects.filter(
-        paciente__dni=dni,
+        paciente_id=paciente.id,
         estado=Turno.Estado.ATENDIDO,
     ).order_by("-fecha_hora")
 
@@ -107,11 +118,13 @@ def obtener_historial_de_paciente(dni: str) -> QuerySet[Turno]:
 def crear_turno(datos_validados: dict) -> Turno:
     """Aplica las reglas de negocio y persiste un turno nuevo."""
     _verificar_agenda_libre(
-        medico_id=datos_validados["medico"].id if "medico" in datos_validados else None,
+        medico_id=datos_validados.get("medico_id"),
         fecha_hora=datos_validados["fecha_hora"],
         excluir_id=None,
     )
-    return Turno.objects.create(**datos_validados)
+    turno = Turno.objects.create(**datos_validados)
+    _publicar_evento("TurnoCreado", {"turno_id": turno.id})
+    return turno
 
 
 def actualizar_turno(turno: Turno, datos_validados: dict) -> Turno:
@@ -125,13 +138,13 @@ def actualizar_turno(turno: Turno, datos_validados: dict) -> Turno:
             )
         turno.version += 1
 
-    nuevo_medico = datos_validados.get("medico", turno.medico)
+    nuevo_medico_id = datos_validados.get("medico_id", turno.medico_id)
     nueva_fecha = datos_validados.get("fecha_hora", turno.fecha_hora)
     nuevo_estado = datos_validados.get("estado", turno.estado)
 
     if nuevo_estado != Turno.Estado.CANCELADO:
         _verificar_agenda_libre(
-            medico_id=nuevo_medico.id if nuevo_medico else None,
+            medico_id=nuevo_medico_id,
             fecha_hora=nueva_fecha,
             excluir_id=turno.pk,
         )
@@ -142,7 +155,9 @@ def actualizar_turno(turno: Turno, datos_validados: dict) -> Turno:
     turno.save()
 
     if turno.estado == Turno.Estado.ATENDIDO:
-        cache.delete(f"historial_paciente_{turno.paciente.dni}")
+        paciente = obtener_paciente(turno.paciente_id)
+        cache.delete(f"historial_paciente_{paciente.dni}")
+        _publicar_evento("TurnoAtendido", {"turno_id": turno.id, "diagnostico": turno.diagnostico})
 
     return turno
 
@@ -193,3 +208,28 @@ def _verificar_agenda_libre(medico_id: int | None, fecha_hora, excluir_id: int |
             f"El medico ya tiene un turno dentro de los {minutos} minutos "
             f"de {fecha_hora:%d/%m/%Y %H:%M}. Elija otro horario o profesional."
         )
+
+def _publicar_evento(tipo: str, payload: dict):
+    """
+    Publica un evento en RabbitMQ demostrando comunicación asíncrona (Productor).
+    """
+    try:
+        connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+        channel = connection.channel()
+        channel.queue_declare(queue='eventos_clinica', durable=True)
+        
+        mensaje = payload.copy()
+        mensaje['tipo'] = tipo
+        
+        channel.basic_publish(
+            exchange='',
+            routing_key='eventos_clinica',
+            body=json.dumps(mensaje),
+            properties=pika.BasicProperties(
+                delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE
+            )
+        )
+        connection.close()
+    except Exception as e:
+        # En un sistema real se deberia hacer retries o guardar en tabla de outbox
+        print(f"Error publicando evento {tipo}: {e}")
