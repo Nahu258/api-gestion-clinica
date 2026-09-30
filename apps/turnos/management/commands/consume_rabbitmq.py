@@ -7,6 +7,7 @@ from apps.turnos.eventos import (
     COLA_EVENTOS,
     DUPLICADO,
     PROCESADO,
+    SIN_CAMBIOS,
     parametros_de_conexion,
     procesar_evento,
 )
@@ -47,6 +48,8 @@ class Command(BaseCommand):
 
             if resultado == PROCESADO:
                 self.stdout.write(self.style.SUCCESS(f"Turno {evento.get('turno_id')} marcado como atendido."))
+            elif resultado == SIN_CAMBIOS:
+                self.stdout.write(f"Turno {evento.get('turno_id')} ya estaba atendido. Sin cambios.")
             elif resultado == DUPLICADO:
                 self.stdout.write(self.style.WARNING(f"Evento {evento.get('evento_id')} ya fue procesado. Ignorando."))
             ch.basic_ack(delivery_tag=method.delivery_tag)

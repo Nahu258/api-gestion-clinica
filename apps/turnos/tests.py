@@ -318,10 +318,12 @@ class HistorialClinicoAPITests(BaseTurnosTest):
         redis_caido = ConnectionError("Redis no responde")
         with patch("apps.turnos.services.cache.get", side_effect=redis_caido), patch(
             "apps.turnos.services.cache.set", side_effect=redis_caido
-        ), self.assertLogs("apps.turnos.services", level="WARNING"):
+        ) as escritura, self.assertLogs("apps.turnos.services", level="WARNING"):
             respuesta = self.client.get(self._url_historial("30111222"))
         self.assertEqual(respuesta.status_code, status.HTTP_200_OK)
         self.assertEqual(respuesta.data["cantidad_consultas"], 1)
+        # Si la lectura ya fallo, no se espera otro timeout intentando escribir.
+        escritura.assert_not_called()
 
 
 class ConcurrenciaOptimistaTests(BaseTurnosTest):
@@ -417,7 +419,7 @@ class ConsumidorIdempotenteTests(BaseTurnosTest):
         resultado = eventos.procesar_evento(
             self._evento(evento_id="evt-456", diagnostico="Otro diagnostico")
         )
-        self.assertEqual(resultado, eventos.PROCESADO)
+        self.assertEqual(resultado, eventos.SIN_CAMBIOS)
         self.turno.refresh_from_db()
         self.assertEqual(self.turno.diagnostico, "Hipertension leve.")
 

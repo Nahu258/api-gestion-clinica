@@ -68,6 +68,7 @@ def publicar_evento(tipo: str, payload: dict) -> str | None:
 # Consumidor
 # ---------------------------------------------------------------------------
 PROCESADO = "procesado"
+SIN_CAMBIOS = "sin_cambios"
 DUPLICADO = "duplicado"
 IGNORADO = "ignorado"
 
@@ -77,7 +78,8 @@ def procesar_evento(evento: dict) -> str:
     Aplica un evento recibido de la cola. Es idempotente: el mismo evento
     entregado dos veces produce el efecto una sola vez.
 
-    Devuelve PROCESADO, DUPLICADO o IGNORADO. Si falla, levanta la excepcion
+    Devuelve PROCESADO (se aplico), SIN_CAMBIOS (el turno ya estaba
+    atendido, ej. lo cerro la propia API), DUPLICADO o IGNORADO. Si falla, levanta la excepcion
     y libera la marca para que un reintento pueda volver a procesarlo.
     """
     if evento.get("tipo") != "TurnoAtendido":
@@ -92,14 +94,15 @@ def procesar_evento(evento: dict) -> str:
         return DUPLICADO
 
     try:
-        _aplicar_turno_atendido(turno_id, evento)
+        aplicado = _aplicar_turno_atendido(turno_id, evento)
     except Exception:
         cache.delete(clave)
         raise
-    return PROCESADO
+    return PROCESADO if aplicado else SIN_CAMBIOS
 
 
-def _aplicar_turno_atendido(turno_id, evento: dict) -> None:
+def _aplicar_turno_atendido(turno_id, evento: dict) -> bool:
+    """Marca el turno como atendido. Devuelve False si ya lo estaba."""
     # Import local: services importa este modulo para publicar.
     from apps.turnos.models import Turno
     from apps.turnos.services import actualizar_turno, obtener_turno
@@ -108,7 +111,7 @@ def _aplicar_turno_atendido(turno_id, evento: dict) -> None:
     # Segunda barrera: si ya esta atendido (ej. lo cerro la propia API),
     # no hay nada que aplicar.
     if turno.estado == Turno.Estado.ATENDIDO:
-        return
+        return False
 
     # Misma regla que la API: no hay turno atendido sin diagnostico.
     if not (evento.get("diagnostico") or "").strip():
@@ -123,3 +126,4 @@ def _aplicar_turno_atendido(turno_id, evento: dict) -> None:
         },
         publicar_eventos=False,
     )
+    return True
