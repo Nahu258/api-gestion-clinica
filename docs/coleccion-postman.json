@@ -499,6 +499,91 @@
       }
     },
     {
+      "name": "17b [200] Cerrar la consulta: atendido + diagnostico (invalida cache y publica TurnoAtendido)",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\n  \"estado\": \"atendido\",\n  \"diagnostico\": \"Faringitis viral.\",\n  \"indicaciones\": \"Reposo 48 hs.\"\n}"
+        },
+        "url": {
+          "raw": "{{base}}/turnos/1",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos",
+            "1"
+          ]
+        }
+      }
+    },
+    {
+      "name": "17c [200] Historial de nuevo: 3 consultas (se leyo de la base, no de la cache vieja)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/pacientes/30111222/historial",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "pacientes",
+            "30111222",
+            "historial"
+          ]
+        }
+      }
+    },
+    {
+      "name": "17d [409] Un turno atendido no se puede modificar",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\n  \"indicaciones\": \"Cambio posterior\"\n}"
+        },
+        "url": {
+          "raw": "{{base}}/turnos/1",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "turnos",
+            "1"
+          ]
+        }
+      }
+    },
+    {
       "name": "18 [404] Historial de paciente sin consultas",
       "request": {
         "method": "GET",
