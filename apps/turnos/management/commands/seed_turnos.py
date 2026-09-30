@@ -1,5 +1,7 @@
 """
-Comando propio: carga turnos de ejemplo para poder demostrar la API.
+Comando propio: carga pacientes, medicos y turnos de ejemplo para poder
+demostrar la API. Pacientes y medicos se registran a traves de los servicios
+del modulo Clinica (su dueno); Turnos solo guarda los IDs.
 
 Uso:
     python manage.py seed_turnos
@@ -11,28 +13,38 @@ from datetime import timedelta
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
+from apps.clinica.services import registrar_medico, registrar_paciente
 from apps.turnos.models import Turno
+
+class ESP:
+    """Valores de Medico.Especialidad (el catalogo es del modulo Clinica)."""
+
+    CLINICA_MEDICA = "clinica_medica"
+    PEDIATRIA = "pediatria"
+    CARDIOLOGIA = "cardiologia"
+    TRAUMATOLOGIA = "traumatologia"
+
 
 # (nombre, dni, telefono, obra_social, profesional, especialidad, estado, motivo)
 EJEMPLOS = [
     (
         "Maria Gomez", "30111222", "3764-551122", "IOSFA",
-        "Dra. Laura Benitez", Turno.Especialidad.CLINICA_MEDICA,
+        "Dra. Laura Benitez", ESP.CLINICA_MEDICA,
         Turno.Estado.CONFIRMADO, "Control anual y analisis de rutina.",
     ),
     (
         "Juan Perez", "28999444", "3764-778899", "OSDE 210",
-        "Dr. Martin Aguirre", Turno.Especialidad.TRAUMATOLOGIA,
+        "Dr. Martin Aguirre", ESP.TRAUMATOLOGIA,
         Turno.Estado.PENDIENTE, "Dolor lumbar persistente hace dos semanas.",
     ),
     (
         "Sofia Duarte", "45222333", "3764-224466", "Swiss Medical",
-        "Dra. Carla Ibarra", Turno.Especialidad.PEDIATRIA,
+        "Dra. Carla Ibarra", ESP.PEDIATRIA,
         Turno.Estado.PENDIENTE, "Control de crecimiento, 6 anios.",
     ),
     (
         "Diego Ramirez", "26555777", "3764-993311", "PAMI",
-        "Dr. Nicolas Ferreyra", Turno.Especialidad.CARDIOLOGIA,
+        "Dr. Nicolas Ferreyra", ESP.CARDIOLOGIA,
         Turno.Estado.CONFIRMADO, "Seguimiento de hipertension.",
     ),
 ]
@@ -41,13 +53,13 @@ EJEMPLOS = [
 HISTORIAL = [
     (
         "Maria Gomez", "30111222", "3764-551122", "IOSFA",
-        "Dra. Laura Benitez", Turno.Especialidad.CLINICA_MEDICA,
+        "Dra. Laura Benitez", ESP.CLINICA_MEDICA,
         "Cuadro gripal.", "Faringitis viral.",
         "Reposo 48 hs, ibuprofeno 400 mg cada 8 hs, abundante liquido.",
     ),
     (
         "Maria Gomez", "30111222", "3764-551122", "IOSFA",
-        "Dr. Nicolas Ferreyra", Turno.Especialidad.CARDIOLOGIA,
+        "Dr. Nicolas Ferreyra", ESP.CARDIOLOGIA,
         "Palpitaciones ocasionales.", "Taquicardia sinusal sin hallazgos patologicos.",
         "Reducir consumo de cafeina. Control en 6 meses.",
     ),
@@ -86,20 +98,18 @@ class Command(BaseCommand):
         creados = 0
         for indice, datos in enumerate(EJEMPLOS):
             nombre, dni, tel, obra, profesional, especialidad, estado, motivo = datos
+            paciente = registrar_paciente(dni=dni, nombre=nombre, telefono=tel, obra_social=obra)
+            medico = registrar_medico(nombre=profesional, especialidad=especialidad)
             fecha_hora = base + timedelta(minutes=30 * indice)
 
             if Turno.objects.filter(
-                profesional=profesional, fecha_hora=fecha_hora
+                medico_id=medico.id, fecha_hora=fecha_hora
             ).exists():
                 continue
 
             Turno.objects.create(
-                paciente_nombre=nombre,
-                paciente_dni=dni,
-                paciente_telefono=tel,
-                obra_social=obra,
-                profesional=profesional,
-                especialidad=especialidad,
+                paciente_id=paciente.id,
+                medico_id=medico.id,
                 estado=estado,
                 fecha_hora=fecha_hora,
                 motivo_consulta=motivo,
@@ -112,21 +122,19 @@ class Command(BaseCommand):
         creados = 0
         for indice, datos in enumerate(HISTORIAL):
             nombre, dni, tel, obra, profesional, especialidad, motivo, diag, indic = datos
+            paciente = registrar_paciente(dni=dni, nombre=nombre, telefono=tel, obra_social=obra)
+            medico = registrar_medico(nombre=profesional, especialidad=especialidad)
             fecha_hora = timezone.localtime() - timedelta(days=45 * (indice + 1))
             fecha_hora = fecha_hora.replace(hour=10, minute=0, second=0, microsecond=0)
 
             if Turno.objects.filter(
-                profesional=profesional, fecha_hora=fecha_hora
+                medico_id=medico.id, fecha_hora=fecha_hora
             ).exists():
                 continue
 
             Turno.objects.create(
-                paciente_nombre=nombre,
-                paciente_dni=dni,
-                paciente_telefono=tel,
-                obra_social=obra,
-                profesional=profesional,
-                especialidad=especialidad,
+                paciente_id=paciente.id,
+                medico_id=medico.id,
                 estado=Turno.Estado.ATENDIDO,
                 fecha_hora=fecha_hora,
                 motivo_consulta=motivo,
