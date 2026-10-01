@@ -17,10 +17,13 @@ consola o para un test, sin tocar una linea.
 import logging
 from datetime import timedelta
 
+from django.conf import settings
 from django.core.cache import cache
+from django.db import IntegrityError, transaction
 from django.db.models import F, Q, QuerySet
 from django.utils import timezone
 
+from apps.clinica import services as clinica
 from apps.clinica.services import (
     buscar_medicos_ids_por_especialidad,
     buscar_medicos_ids_por_nombre,
@@ -30,8 +33,10 @@ from apps.clinica.services import (
     obtener_paciente,
     obtener_paciente_por_dni,
 )
+from apps.turnos import agenda
 from apps.turnos.eventos import publicar_evento
 from apps.turnos.models import Turno
+from core import eventos
 from core.exceptions import DatosInvalidos, RecursoNoEncontrado, ReglaDeNegocioViolada
 
 logger = logging.getLogger(__name__)
@@ -132,17 +137,62 @@ def obtener_historial_de_paciente(dni: str) -> QuerySet[Turno]:
     return historial
 
 
-def crear_turno(datos_validados: dict) -> Turno:
-    """Aplica las reglas de negocio y persiste un turno nuevo."""
+def reservar_temporalmente(profesional: str, fecha_hora) -> dict:
+    """
+    AE2 - Aparta un horario por unos minutos (Redis con TTL).
+    Primero se verifica que no este ya ocupado en la base.
+    """
+    medicos = buscar_medicos_ids_por_nombre(profesional)
+    if medicos:
+        _verificar_agenda_libre(medico_id=medicos[0], fecha_hora=fecha_hora, excluir_id=None)
+
+    reserva = agenda.crear_reserva_temporal(profesional, fecha_hora)
+    return {"profesional": profesional, "fecha_hora": fecha_hora, **reserva}
+
+
+def crear_turno(datos_validados: dict, reserva_token: str | None = None) -> Turno:
+    """
+    Aplica las reglas de negocio y persiste un turno nuevo.
+
+    AE2 - Control de concurrencia en tres capas:
+      1. Lock en Redis por profesional: serializa los pedidos que compiten
+         por la misma agenda, asi la verificacion y el guardado no se mezclan.
+      2. Reserva temporal: si el horario esta apartado por otra persona, 409.
+      3. Restriccion unica en la base (ultima defensa): aunque todo lo
+         anterior fallara, la base rechaza el duplicado -> 409.
+    """
     datos = dict(datos_validados)
     datos.pop("version", None)  # la version la administra el sistema
 
-    _verificar_agenda_libre(
-        medico_id=datos["medico_id"],
-        fecha_hora=datos["fecha_hora"],
-        excluir_id=None,
-    )
-    turno = Turno.objects.create(**datos)
+    medico_id = datos["medico_id"]
+    fecha_hora = datos["fecha_hora"]
+
+    try:
+        medico = clinica.obtener_medico(medico_id)
+        profesional_nombre = medico.nombre
+    except Exception:
+        medico = None
+        profesional_nombre = str(medico_id)
+
+    with agenda.lock_de_agenda(profesional_nombre):
+        clave_hold = agenda.verificar_reserva_temporal(
+            profesional_nombre, fecha_hora, reserva_token
+        )
+        _verificar_agenda_libre(
+            medico_id=medico_id,
+            fecha_hora=fecha_hora,
+            excluir_id=None,
+        )
+        try:
+            with transaction.atomic():
+                turno = Turno.objects.create(**datos)
+        except IntegrityError:
+            raise ReglaDeNegocioViolada(
+                f"El profesional ya tiene un turno el {fecha_hora:%d/%m/%Y %H:%M}."
+            )
+        agenda.borrar_hold(clave_hold, reserva_token)
+
+    # 1. Evento de clinica TurnoCreado
     publicar_evento(
         "TurnoCreado",
         {
@@ -152,7 +202,28 @@ def crear_turno(datos_validados: dict) -> Turno:
             "fecha_hora": turno.fecha_hora.isoformat(),
         },
     )
+
+    # 2. Evento TurnoReservado en RabbitMQ para comprobante PDF con QR en segundo plano
+    evento_pdf = eventos.armar_evento("TurnoReservado", datos_del_evento(turno))
+    transaction.on_commit(
+        lambda: eventos.publicar(eventos.RK_TURNO_RESERVADO, evento_pdf)
+    )
+
     return turno
+
+
+def datos_del_evento(turno: Turno) -> dict:
+    paciente = clinica.obtener_paciente(turno.paciente_id) if turno.paciente_id else None
+    medico = clinica.obtener_medico(turno.medico_id) if turno.medico_id else None
+    return {
+        "turno_id": turno.pk,
+        "paciente_nombre": paciente.nombre if paciente else "Desconocido",
+        "paciente_dni": paciente.dni if paciente else "",
+        "profesional": medico.nombre if medico else f"Médico {turno.medico_id}",
+        "especialidad": medico.especialidad if medico else "",
+        "especialidad_legible": medico.get_especialidad_display() if medico else "",
+        "fecha_hora": turno.fecha_hora.isoformat(),
+    }
 
 
 def actualizar_turno(turno: Turno, datos_validados: dict, publicar_eventos: bool = True) -> Turno:
@@ -182,40 +253,53 @@ def actualizar_turno(turno: Turno, datos_validados: dict, publicar_eventos: bool
     nueva_fecha = datos.get("fecha_hora", turno.fecha_hora)
     nuevo_estado = datos.get("estado", turno.estado)
 
-    if nuevo_estado != Turno.Estado.CANCELADO:
+    if nuevo_estado == Turno.Estado.CANCELADO:
+        for campo, valor in datos_validados.items():
+            setattr(turno, campo, valor)
+        turno.save()
+        return turno
+
+    try:
+        medico = clinica.obtener_medico(nuevo_medico_id)
+        profesional_nombre = medico.nombre
+    except Exception:
+        profesional_nombre = str(nuevo_medico_id)
+
+    # AE2: mover un turno tambien compite por la agenda -> lock en Redis
+    with agenda.lock_de_agenda(profesional_nombre):
         _verificar_agenda_libre(
             medico_id=nuevo_medico_id,
             fecha_hora=nueva_fecha,
             excluir_id=turno.pk,
         )
 
-    # UPDATE turnos SET ..., version = version + 1 WHERE id = ? AND version = ?
-    # (update() no pasa por save(): actualizado_en se completa a mano).
-    filas = Turno.objects.filter(pk=turno.pk, version=version_esperada).update(
-        **datos,
-        version=F("version") + 1,
-        actualizado_en=timezone.now(),
-    )
-    if filas == 0:
-        raise _conflicto_de_version()
+        # UPDATE turnos SET ..., version = version + 1 WHERE id = ? AND version = ?
+        filas = Turno.objects.filter(pk=turno.pk, version=version_esperada).update(
+            **datos,
+            version=F("version") + 1,
+            actualizado_en=timezone.now(),
+        )
+        if filas == 0:
+            raise _conflicto_de_version()
 
-    turno.refresh_from_db()
+        turno.refresh_from_db()
 
-    # Solo se llega aca si el turno NO estaba atendido: el evento se publica
-    # una unica vez, en la transicion a 'atendido'.
-    if turno.estado == Turno.Estado.ATENDIDO:
-        paciente = obtener_paciente(turno.paciente_id)
-        _cache_delete(_clave_historial(paciente.dni))
-        if publicar_eventos:
-            publicar_evento(
-                "TurnoAtendido",
-                {
-                    "turno_id": turno.id,
-                    "paciente_id": turno.paciente_id,
-                    "diagnostico": turno.diagnostico,
-                    "indicaciones": turno.indicaciones,
-                },
-            )
+        # Solo se llega aca si el turno NO estaba atendido: el evento se publica
+        # una unica vez, en la transicion a 'atendido'.
+        if turno.estado == Turno.Estado.ATENDIDO:
+            paciente = obtener_paciente(turno.paciente_id)
+            if paciente:
+                _cache_delete(_clave_historial(paciente.dni))
+            if publicar_eventos:
+                publicar_evento(
+                    "TurnoAtendido",
+                    {
+                        "turno_id": turno.id,
+                        "paciente_id": turno.paciente_id,
+                        "diagnostico": turno.diagnostico,
+                        "indicaciones": turno.indicaciones,
+                    },
+                )
 
     return turno
 

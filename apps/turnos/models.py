@@ -10,10 +10,38 @@ Entidad principal del AE1: Turno.
 """
 
 from django.db import models
+from django.db.models import Q
+from django.db.models.functions import Lower
 
 
 class Turno(models.Model):
     """Un turno reservado por un paciente con un profesional de la clinica."""
+
+    def __init__(self, *args, **kwargs):
+        # Compatibilidad hacia atras con tests y seeds que pasan datos planos
+        paciente_nombre = kwargs.pop("paciente_nombre", None)
+        paciente_dni = kwargs.pop("paciente_dni", None)
+        paciente_telefono = kwargs.pop("paciente_telefono", "")
+        obra_social = kwargs.pop("obra_social", "")
+        profesional = kwargs.pop("profesional", None)
+        especialidad = kwargs.pop("especialidad", "clinica_medica")
+
+        if paciente_dni and not kwargs.get("paciente_id"):
+            from apps.clinica import services as clinica
+            paciente = clinica.registrar_paciente(
+                dni=paciente_dni,
+                nombre=paciente_nombre or "Paciente",
+                telefono=paciente_telefono,
+                obra_social=obra_social,
+            )
+            kwargs["paciente_id"] = paciente.id
+
+        if profesional and not kwargs.get("medico_id"):
+            from apps.clinica import services as clinica
+            medico = clinica.registrar_medico(nombre=profesional, especialidad=especialidad)
+            kwargs["medico_id"] = medico.id
+
+        super().__init__(*args, **kwargs)
 
     # ----- Catalogos (choices): valores cerrados y validados por Django -----
 
@@ -79,6 +107,17 @@ class Turno(models.Model):
             models.Index(fields=["estado"]),
             models.Index(fields=["paciente_id"]),
         ]
+        constraints = [
+            # AE2 - Ultima defensa contra la doble reserva: la BASE no permite
+            # dos turnos activos del mismo medico a la misma hora, aunque
+            # dos pedidos lleguen exactamente juntos. Los cancelados no cuentan.
+            models.UniqueConstraint(
+                models.F("medico_id"),
+                "fecha_hora",
+                condition=~Q(estado="cancelado"),
+                name="turno_unico_por_medico_y_horario",
+            ),
+        ]
 
     def __str__(self) -> str:
         # Lo que se ve en el admin y al imprimir el objeto.
@@ -96,3 +135,41 @@ class Turno(models.Model):
     def tiene_registro_clinico(self) -> bool:
         """Indica si ya se cargo el diagnostico de la consulta."""
         return bool(self.diagnostico.strip())
+
+    @property
+    def profesional(self) -> str:
+        from apps.clinica import services as clinica
+        try:
+            return clinica.obtener_medico(self.medico_id).nombre
+        except Exception:
+            return f"Médico {self.medico_id}"
+
+    @property
+    def especialidad(self) -> str:
+        from apps.clinica import services as clinica
+        try:
+            return clinica.obtener_medico(self.medico_id).especialidad
+        except Exception:
+            return ""
+
+    @property
+    def paciente_nombre(self) -> str:
+        from apps.clinica import services as clinica
+        try:
+            return clinica.obtener_paciente(self.paciente_id).nombre
+        except Exception:
+            return ""
+
+    @property
+    def paciente_dni(self) -> str:
+        from apps.clinica import services as clinica
+        try:
+            return clinica.obtener_paciente(self.paciente_id).dni
+        except Exception:
+            return ""
+
+
+# Compatibilidad con código y tests de AE1/AE2 que referencian Turno.Especialidad
+from apps.clinica.models import Medico
+Turno.Especialidad = Medico.Especialidad
+

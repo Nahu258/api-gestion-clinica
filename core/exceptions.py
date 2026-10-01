@@ -57,6 +57,22 @@ class ReglaDeNegocioViolada(ErrorDeAplicacion):
     default_detail = "La operacion viola una regla de negocio."
 
 
+class DatosNoProcesables(ErrorDeAplicacion):
+    """422 - Los datos son validos pero no se pueden procesar (ej. Idempotency-Key reutilizada)."""
+
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    codigo = "NO_PROCESABLE"
+    default_detail = "La solicitud no se puede procesar."
+
+
+class ServicioNoDisponible(ErrorDeAplicacion):
+    """503 - Una dependencia de infraestructura (Redis) no responde."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    codigo = "SERVICIO_NO_DISPONIBLE"
+    default_detail = "Un servicio necesario no esta disponible."
+
+
 # ---------------------------------------------------------------------------
 # Constructor del cuerpo de error
 # ---------------------------------------------------------------------------
@@ -80,7 +96,9 @@ CODIGOS_POR_ESTADO = {
     405: "METODO_NO_PERMITIDO",
     409: "CONFLICTO",
     415: "TIPO_DE_CONTENIDO_NO_SOPORTADO",
+    422: "NO_PROCESABLE",
     500: "ERROR_INTERNO",
+    503: "SERVICIO_NO_DISPONIBLE",
 }
 
 MENSAJES_POR_ESTADO = {

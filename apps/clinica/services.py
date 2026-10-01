@@ -84,5 +84,8 @@ def medico_requiere_motivo(medico: Medico) -> bool:
 
 def registrar_medico(nombre: str, especialidad: str) -> Medico:
     """Devuelve el medico con ese nombre y especialidad; si no existe, lo crea."""
-    medico, _ = Medico.objects.get_or_create(nombre=nombre, especialidad=especialidad)
-    return medico
+    nombre = nombre.strip()
+    medico = Medico.objects.filter(nombre__iexact=nombre).first()
+    if medico:
+        return medico
+    return Medico.objects.create(nombre=nombre, especialidad=especialidad)

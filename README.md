@@ -382,3 +382,64 @@ El historial clínico es información de salud. Los datos de ejemplo son
 ficticios. Autenticación, control de acceso por rol (recepción vs. médico) y
 registro de auditoría siguen siendo deuda explícita: quedaron fuera del
 alcance de AE2 y se planifican para AE4.
+
+---
+
+## AE2 — Infraestructura con Docker
+
+Se integran PostgreSQL, Redis y RabbitMQ como contenedores.
+
+### Levantar todo
+
+1. Tener **Docker Desktop** abierto (tiene que decir *Engine running*).
+2. Copiar `.env.example` a `.env` (si no existe).
+3. Desde la carpeta del proyecto:
+
+```powershell
+docker compose up -d --build
+docker compose ps
+```
+
+| Servicio | Puerto | Para qué |
+|---|---|---|
+| `api` | 8000 | La API de Django, usando PostgreSQL |
+| `postgres` | 5432 | Base de datos |
+| `redis` | 6379 | Caché, locks y reservas temporales |
+| `rabbitmq` | 5672 / 15672 | Mensajería asincrónica / panel web (`guest` / `guest`) |
+| `worker` | - | Consumidor de comprobantes PDF con QR (`TurnoReservado`) |
+| `consumidor` | - | Consumidor de eventos clínicos (`TurnoAtendido`) |
+
+### Verificar
+
+Abrir <http://localhost:8000/api/v1/salud>. Si todo está conectado responde `200`:
+
+```json
+{"base_de_datos": "ok", "motor": "postgresql", "redis": "ok", "rabbitmq": "ok"}
+```
+
+Si algún servicio no responde, devuelve `503` e indica cuál falla.
+
+### Comandos útiles
+
+| Comando | Para qué sirve |
+|---|---|
+| `docker compose up -d` | Levanta los servicios |
+| `docker compose logs -f api` | Ver los logs de la API |
+| `docker compose exec api python manage.py test` | Correr los tests dentro del contenedor |
+| `docker compose exec api python manage.py seed_turnos` | Cargar datos de prueba |
+| `docker compose down` | Apagar todo (los datos de Postgres se conservan) |
+
+---
+
+## AE2 — Módulo Turnos y Clínica
+
+Reserva temporal con TTL en Redis, control de concurrencia, `Idempotency-Key`,
+desacoplamiento de módulos, y eventos asíncronos en RabbitMQ con comprobantes PDF con QR.
+Detalle completo, decisiones y alternativas en [`docs/ae2-turnos.md`](docs/ae2-turnos.md).
+
+```powershell
+docker compose up -d --build                                 # api + workers + postgres + redis + rabbitmq
+docker compose exec api python manage.py test                 # suite de tests
+docker compose exec api python scripts/demo_ae2.py            # demo paso a paso
+docker compose logs -f worker                                 # ver al worker generar los PDF
+```

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 import os
+import sys
 
 # BASE_DIR apunta a la carpeta que contiene manage.py
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -102,12 +103,44 @@ ASGI_APPLICATION = "config.asgi.application"
 # ---------------------------------------------------------------------------
 # Base de datos (capa de persistencia)
 # ---------------------------------------------------------------------------
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / env("DATABASE_NAME", "db.sqlite3"),
+# AE2: si DATABASE_ENGINE=postgres se usa PostgreSQL (el que levanta
+# docker-compose). Si no, queda SQLite como en el AE1, asi los tests y el
+# arranque rapido siguen funcionando sin Docker.
+if env("DATABASE_ENGINE", "sqlite").lower() == "postgres":
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": env("POSTGRES_DB", "clinica"),
+            "USER": env("POSTGRES_USER", "clinica"),
+            "PASSWORD": env("POSTGRES_PASSWORD", "clinica"),
+            "HOST": env("POSTGRES_HOST", "localhost"),
+            "PORT": env("POSTGRES_PORT", "5432"),
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / env("DATABASE_NAME", "db.sqlite3"),
+        }
+    }
+
+# ---------------------------------------------------------------------------
+# AE2: Redis (cache / estado temporal) y RabbitMQ (mensajeria asincronica)
+# ---------------------------------------------------------------------------
+REDIS_URL = env("REDIS_URL", "redis://localhost:6379/0")
+RABBITMQ_URL = env("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+# Si es False, la API no publica eventos (util para correr sin RabbitMQ).
+EVENTOS_HABILITADOS = env_bool("EVENTOS_HABILITADOS", True)
+
+# Los tests usan un Redis en memoria y no publican en RabbitMQ, asi corren
+# en cualquier compu sin tener los contenedores levantados.
+if len(sys.argv) > 1 and sys.argv[1] == "test":
+    REDIS_URL = "fakeredis://"
+    EVENTOS_HABILITADOS = False
+
+# Archivos generados (comprobantes PDF)
+MEDIA_ROOT = BASE_DIR / env("MEDIA_DIR", "media")
 
 # ---------------------------------------------------------------------------
 # Validadores de contrasena (solo aplican al admin de Django)

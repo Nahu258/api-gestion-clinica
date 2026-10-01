@@ -3,6 +3,11 @@ Django==6.1
 djangorestframework==3.18.0
 python-dotenv==1.2.3
 django-cors-headers==4.9.0
-# AE2: cliente de RabbitMQ (mensajeria) y de Redis (cache de Django)
-pika==1.4.4
-redis==8.1.0
+
+# --- AE2 ---
+psycopg[binary]==3.2.10   # driver de PostgreSQL
+redis==8.1.0              # cliente de Redis y cache (version mas nueva)
+pika==1.4.4               # cliente de RabbitMQ (version mas nueva)
+reportlab==5.0.1          # generacion del comprobante PDF
+qrcode[pil]==8.2          # codigo QR del comprobante
+fakeredis==2.38.0         # Redis en memoria para los tests

@@ -13,14 +13,18 @@ Se usa APIView (y no ViewSet) a proposito: asi queda explicito un metodo por
 cada verbo HTTP y se ve el status code que devuelve cada caso.
 """
 
+from django.http import FileResponse
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.turnos import services
-from apps.turnos.serializers import TurnoSerializer
 from apps.clinica.services import obtener_paciente
+from apps.turnos import agenda, services
+from apps.turnos.comprobantes import ruta_comprobante
+from apps.turnos.idempotencia import ejecutar_una_vez
+from apps.turnos.serializers import ReservaTemporalSerializer, TurnoSerializer
+from core.exceptions import RecursoNoEncontrado
 
 
 class TurnoListaAPIView(APIView):
@@ -48,20 +52,39 @@ class TurnoListaAPIView(APIView):
         )
 
     def post(self, request: Request) -> Response:
-        serializer = TurnoSerializer(data=request.data)
-        # raise_exception=True => si falla, DRF levanta ValidationError y
-        # nuestro handler responde 400 con el detalle por campo.
-        serializer.is_valid(raise_exception=True)
+        """
+        AE2 - Headers opcionales:
+          Idempotency-Key: <uuid>   -> un reintento con la misma clave no duplica el turno.
+          Body "reserva_token"      -> confirma un horario apartado con /turnos/reservas-temporales.
+        """
+        clave = request.headers.get("Idempotency-Key")
 
-        turno = services.crear_turno(serializer.validated_data)
-        salida = TurnoSerializer(turno)
+        def crear():
+            datos = request.data.copy()
+            reserva_token = datos.pop("reserva_token", None)
+            if isinstance(reserva_token, list):  # form-data devuelve listas
+                reserva_token = reserva_token[0] if reserva_token else None
 
-        # 201 Created debe incluir el header Location apuntando al recurso.
-        return Response(
-            salida.data,
-            status=status.HTTP_201_CREATED,
-            headers={"Location": f"/api/v1/turnos/{turno.pk}"},
-        )
+            serializer = TurnoSerializer(data=datos)
+            # raise_exception=True => si falla, DRF levanta ValidationError y
+            # nuestro handler responde 400 con el detalle por campo.
+            serializer.is_valid(raise_exception=True)
+
+            turno = services.crear_turno(serializer.validated_data, reserva_token)
+            # 201 Created debe incluir el header Location apuntando al recurso.
+            return (
+                status.HTTP_201_CREATED,
+                TurnoSerializer(turno).data,
+                {"Location": f"/api/v1/turnos/{turno.pk}"},
+            )
+
+        if not clave:
+            estado_http, cuerpo, headers = crear()
+            return Response(cuerpo, status=estado_http, headers=headers)
+
+        estado_http, cuerpo, headers, repetido = ejecutar_una_vez(clave, request.data, crear)
+        headers = {**headers, "Idempotent-Replay": "true" if repetido else "false"}
+        return Response(cuerpo, status=estado_http, headers=headers)
 
 
 class TurnoDetalleAPIView(APIView):
@@ -122,6 +145,60 @@ class HistorialClinicoAPIView(APIView):
         )
 
 
+class ReservaTemporalAPIView(APIView):
+    """
+    AE2 - Apartar un horario mientras el paciente completa sus datos.
+
+    POST /api/v1/turnos/reservas-temporales -> 201 {token, expira_en_segundos}
+                                               409 si ya esta ocupado o apartado
+    """
+
+    def post(self, request: Request) -> Response:
+        serializer = ReservaTemporalSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reserva = services.reservar_temporalmente(**serializer.validated_data)
+        return Response(ReservaTemporalSerializer(reserva).data, status=status.HTTP_201_CREATED)
+
+
+class ReservaTemporalDetalleAPIView(APIView):
+    """
+    GET    /api/v1/turnos/reservas-temporales/{token} -> 200 cuanto le queda / 404 vencida
+    DELETE /api/v1/turnos/reservas-temporales/{token} -> 204 libera el horario
+    """
+
+    def get(self, request: Request, token: str) -> Response:
+        reserva = agenda.consultar_reserva_temporal(token)
+        if reserva is None:
+            raise RecursoNoEncontrado("La reserva temporal no existe o ya vencio.")
+        return Response(reserva, status=status.HTTP_200_OK)
+
+    def delete(self, request: Request, token: str) -> Response:
+        if not agenda.liberar_reserva_temporal(token):
+            raise RecursoNoEncontrado("La reserva temporal no existe o ya vencio.")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ComprobanteAPIView(APIView):
+    """
+    AE2 - GET /api/v1/turnos/{id}/comprobante -> PDF con QR (lo genera el worker).
+    404 si el turno no existe o si el worker todavia no genero el comprobante.
+    """
+
+    def get(self, request: Request, turno_id: int):
+        services.obtener_turno(turno_id)
+        ruta = ruta_comprobante(turno_id)
+        if not ruta.exists():
+            raise RecursoNoEncontrado(
+                "El comprobante todavia no fue generado. Se genera en segundo "
+                "plano: reintente en unos segundos."
+            )
+        return FileResponse(
+            open(ruta, "rb"),
+            content_type="application/pdf",
+            filename=f"turno_{turno_id}.pdf",
+        )
+
+
 class IndiceAPIView(APIView):
     """GET /api/v1 -> mapa de rutas disponibles. Util para la demo en vivo."""
 
@@ -143,6 +220,19 @@ class IndiceAPIView(APIView):
                     "GET    /api/v1/pacientes/{dni}/historial": (
                         "Historial clinico del paciente"
                     ),
+                    "POST   /api/v1/turnos/reservas-temporales": (
+                        "AE2 - Apartar un horario por 5 minutos"
+                    ),
+                    "GET    /api/v1/turnos/reservas-temporales/{token}": (
+                        "AE2 - Tiempo restante de la reserva temporal"
+                    ),
+                    "DELETE /api/v1/turnos/reservas-temporales/{token}": (
+                        "AE2 - Liberar el horario apartado"
+                    ),
+                    "GET    /api/v1/turnos/{id}/comprobante": (
+                        "AE2 - Comprobante PDF con QR"
+                    ),
+                    "GET    /api/v1/salud": "AE2 - Estado de base, Redis y RabbitMQ",
                 },
             },
             status=status.HTTP_200_OK,

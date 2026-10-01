@@ -1,4 +1,3 @@
-# Imagen de la API (la misma imagen corre el consumidor de RabbitMQ).
 FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
