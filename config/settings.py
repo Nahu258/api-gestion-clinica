@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     "apps.turnos",
     "apps.clinica",
     "apps.centros",
+    "apps.atencion",
 ]
 
 # ---------------------------------------------------------------------------

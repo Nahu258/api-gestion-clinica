@@ -25,6 +25,7 @@ urlpatterns = [
     # Recursos de la version 1 de la API
     path("api/v1/", include("apps.turnos.urls")),
     path("api/v1/", include("apps.centros.urls")),
+    path("api/v1/", include("apps.atencion.urls")),
 ]
 
 # Handlers globales (activos cuando DEBUG=False)
