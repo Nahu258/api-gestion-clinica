@@ -1,13 +1,12 @@
 """
-Tests unitarios del modelo CentroEmergencia (issue AE4-01 / #8).
+Tests del módulo Centros de Emergencia (issues #8, #9, #10).
 
 Ejecutar con:  python manage.py test apps.centros
 
 Cubre:
-- Creación exitosa con campos obligatorios
-- Validación de campos obligatorios (latitud/longitud/nombre)
-- Comportamiento de __str__
-- Valores por defecto (activo=True, atiende_24h=True, ciudad, provincia, pais)
+- Modelo CentroEmergencia: creación, defaults, __str__, tipos, validación, queries
+- Comando seed_centros: idempotencia, tipos cubiertos, coordenadas
+- Endpoint GET /api/v1/centros/cercanos/: respuestas 200 y 400, filtros, ordenamiento
 - Choices del campo tipo
 """
 
@@ -15,6 +14,9 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APITestCase
 
 from .models import CentroEmergencia
 
@@ -213,3 +215,123 @@ class SeedCentrosCommandTest(TestCase):
         """La salida del comando menciona cuántos registros se crearon."""
         output = self._run_seed()
         self.assertIn("creados", output)
+
+
+# ---------------------------------------------------------------------------
+# Tests del endpoint GET /api/v1/centros/cercanos/  (issue #10)
+# ---------------------------------------------------------------------------
+
+class CentrosCercanosEndpointTest(APITestCase):
+    """Tests de integración del endpoint de búsqueda por proximidad."""
+
+    URL = "/api/v1/centros/cercanos/"
+
+    # Coordenadas del centro de Posadas (Plaza 9 de Julio ~)
+    LAT_POSADAS = -27.3676
+    LON_POSADAS = -55.8977
+
+    def _crear_centro(self, nombre="Hospital Test", tipo=None, lat=-27.3680, lon=-55.8985, activo=True):
+        return CentroEmergencia.objects.create(
+            nombre=nombre,
+            tipo=tipo or CentroEmergencia.Tipo.HOSPITAL,
+            direccion="Calle Falsa 123",
+            latitud=lat,
+            longitud=lon,
+            activo=activo,
+        )
+
+    # ── Casos exitosos (200) ────────────────────────────────────────────────
+
+    def test_200_con_resultados(self):
+        """Devuelve 200 y una lista cuando hay centros dentro del radio."""
+        self._crear_centro()
+        resp = self.client.get(self.URL, {"lat": self.LAT_POSADAS, "lon": self.LON_POSADAS, "radio_km": 5})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertGreater(resp.data["cantidad"], 0)
+
+    def test_200_sin_resultados_fuera_de_radio(self):
+        """Devuelve 200 con lista vacía si no hay centros en el radio."""
+        # Centro en Buenos Aires, búsqueda en Posadas
+        self._crear_centro(lat=-34.6037, lon=-58.3816)
+        resp = self.client.get(self.URL, {"lat": self.LAT_POSADAS, "lon": self.LON_POSADAS, "radio_km": 5})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["cantidad"], 0)
+
+    def test_200_ordenado_por_distancia(self):
+        """Los resultados vienen de más cercano a más lejano."""
+        self._crear_centro(nombre="Lejos",  lat=-27.4000, lon=-55.9200)  # ~4 km
+        self._crear_centro(nombre="Cerca",  lat=-27.3680, lon=-55.8985)  # ~0.1 km
+        resp = self.client.get(self.URL, {"lat": self.LAT_POSADAS, "lon": self.LON_POSADAS, "radio_km": 10})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        nombres = [r["nombre"] for r in resp.data["resultados"]]
+        self.assertEqual(nombres[0], "Cerca")
+        self.assertEqual(nombres[-1], "Lejos")
+
+    def test_200_filtro_por_tipo(self):
+        """El parámetro tipo filtra correctamente."""
+        self._crear_centro(nombre="Hospital A", tipo=CentroEmergencia.Tipo.HOSPITAL)
+        self._crear_centro(nombre="Bomberos B", tipo=CentroEmergencia.Tipo.BOMBEROS)
+        resp = self.client.get(self.URL, {
+            "lat": self.LAT_POSADAS, "lon": self.LON_POSADAS,
+            "radio_km": 5, "tipo": "hospital",
+        })
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        tipos = {r["tipo"] for r in resp.data["resultados"]}
+        self.assertEqual(tipos, {"hospital"})
+
+    def test_200_no_devuelve_centros_inactivos(self):
+        """Centros con activo=False no aparecen en los resultados."""
+        self._crear_centro(nombre="Inactivo", activo=False)
+        resp = self.client.get(self.URL, {"lat": self.LAT_POSADAS, "lon": self.LON_POSADAS, "radio_km": 5})
+        nombres = [r["nombre"] for r in resp.data["resultados"]]
+        self.assertNotIn("Inactivo", nombres)
+
+    def test_200_respuesta_incluye_distancia_km(self):
+        """Cada resultado tiene el campo distancia_km."""
+        self._crear_centro()
+        resp = self.client.get(self.URL, {"lat": self.LAT_POSADAS, "lon": self.LON_POSADAS, "radio_km": 5})
+        self.assertIn("distancia_km", resp.data["resultados"][0])
+
+    def test_200_radio_km_default_es_10(self):
+        """Sin radio_km, el default es 10 km y no falla."""
+        resp = self.client.get(self.URL, {"lat": self.LAT_POSADAS, "lon": self.LON_POSADAS})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    # ── Errores de validación (400) ─────────────────────────────────────────
+
+    def test_400_sin_lat(self):
+        resp = self.client.get(self.URL, {"lon": self.LON_POSADAS})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("lat", resp.data["error"]["mensaje"])
+
+    def test_400_sin_lon(self):
+        resp = self.client.get(self.URL, {"lat": self.LAT_POSADAS})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("lon", resp.data["error"]["mensaje"])
+
+    def test_400_lat_no_numerico(self):
+        resp = self.client.get(self.URL, {"lat": "abc", "lon": self.LON_POSADAS})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_400_lat_fuera_de_rango(self):
+        resp = self.client.get(self.URL, {"lat": 999, "lon": self.LON_POSADAS})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_400_radio_negativo(self):
+        resp = self.client.get(self.URL, {"lat": self.LAT_POSADAS, "lon": self.LON_POSADAS, "radio_km": -1})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_400_radio_supera_maximo(self):
+        resp = self.client.get(self.URL, {"lat": self.LAT_POSADAS, "lon": self.LON_POSADAS, "radio_km": 999})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_400_tipo_desconocido(self):
+        resp = self.client.get(self.URL, {
+            "lat": self.LAT_POSADAS, "lon": self.LON_POSADAS, "tipo": "farmacia",
+        })
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_405_metodo_no_permitido(self):
+        """POST no está soportado en este endpoint."""
+        resp = self.client.post(self.URL, {})
+        self.assertEqual(resp.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
