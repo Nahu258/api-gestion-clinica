@@ -157,3 +157,59 @@ class CentroEmergenciaQueryTest(TestCase):
             CentroEmergencia.objects.values_list("nombre", flat=True)
         )
         self.assertEqual(nombres, sorted(nombres))
+
+
+class SeedCentrosCommandTest(TestCase):
+    """Tests del comando de management seed_centros."""
+
+    def _run_seed(self, limpiar=False):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command("seed_centros", limpiar=limpiar, stdout=out)
+        return out.getvalue()
+
+    def test_seed_carga_centros(self):
+        """El comando crea centros en la base de datos."""
+        self._run_seed()
+        self.assertGreater(CentroEmergencia.objects.count(), 0)
+
+    def test_seed_es_idempotente(self):
+        """Correr el seed dos veces no duplica registros."""
+        self._run_seed()
+        cantidad_primera_vez = CentroEmergencia.objects.count()
+        self._run_seed()
+        self.assertEqual(CentroEmergencia.objects.count(), cantidad_primera_vez)
+
+    def test_seed_con_limpiar_resetea(self):
+        """Con --limpiar, los centros anteriores se borran y se vuelven a cargar."""
+        self._run_seed()
+        cantidad = CentroEmergencia.objects.count()
+        self._run_seed(limpiar=True)
+        self.assertEqual(CentroEmergencia.objects.count(), cantidad)
+
+    def test_seed_incluye_todos_los_tipos(self):
+        """El seedeo carga al menos un centro de cada tipo."""
+        self._run_seed()
+        tipos_cargados = set(CentroEmergencia.objects.values_list("tipo", flat=True))
+        tipos_esperados = {
+            CentroEmergencia.Tipo.HOSPITAL,
+            CentroEmergencia.Tipo.UPA,
+            CentroEmergencia.Tipo.SAME,
+            CentroEmergencia.Tipo.BOMBEROS,
+            CentroEmergencia.Tipo.POLICIA,
+        }
+        self.assertTrue(tipos_esperados.issubset(tipos_cargados))
+
+    def test_seed_centros_tienen_coordenadas_validas(self):
+        """Todos los centros cargados tienen latitud y longitud no nulos."""
+        self._run_seed()
+        sin_coords = CentroEmergencia.objects.filter(
+            latitud__isnull=True
+        ).count()
+        self.assertEqual(sin_coords, 0)
+
+    def test_seed_output_indica_creados(self):
+        """La salida del comando menciona cuántos registros se crearon."""
+        output = self._run_seed()
+        self.assertIn("creados", output)
