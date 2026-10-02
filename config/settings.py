@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "apps.turnos",
     "apps.clinica",
+    "apps.centros",
 ]
 
 # ---------------------------------------------------------------------------
