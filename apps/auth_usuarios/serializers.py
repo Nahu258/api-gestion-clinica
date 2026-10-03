@@ -1,8 +1,9 @@
 """
-Serializers de autenticación — Épica 2, issue #13.
+Serializers de autenticación — Épica 2, issues #13 y #14.
 
 GoogleTokenSerializer: valida el id_token enviado por el frontend.
 PerfilUsuarioSerializer: representa el usuario autenticado en GET /auth/me/.
+InvitadoSerializer: recibe el nombre opcional del invitado.
 """
 
 from rest_framework import serializers
@@ -27,3 +28,15 @@ class PerfilUsuarioSerializer(serializers.Serializer):
     email = serializers.EmailField()
     nombre = serializers.CharField()
     foto_url = serializers.URLField(allow_blank=True)
+
+
+class InvitadoSerializer(serializers.Serializer):
+    """Recibe el nombre opcional del invitado para POST /auth/invitado/."""
+
+    nombre = serializers.CharField(
+        max_length=120,
+        required=False,
+        default="",
+        allow_blank=True,
+        help_text="Nombre opcional del invitado. Si no se envía, el invitado es anónimo.",
+    )

@@ -1,9 +1,10 @@
 """
-Vistas de autenticación — Épica 2, issue #13.
+Vistas de autenticación — Épica 2, issues #13 y #14.
 
-POST /api/v1/auth/google/   → intercambia id_token de Google por JWT propio
-POST /api/v1/auth/refresh/  → renueva el access_token con el refresh_token
-GET  /api/v1/auth/me/       → devuelve el perfil del usuario autenticado
+POST /api/v1/auth/google/    → intercambia id_token de Google por JWT propio
+POST /api/v1/auth/refresh/   → renueva el access_token con el refresh_token
+GET  /api/v1/auth/me/        → devuelve el perfil del usuario autenticado
+POST /api/v1/auth/invitado/  → genera token de invitado temporal (Redis)
 """
 
 import logging
@@ -17,7 +18,12 @@ from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.auth_usuarios import services
-from apps.auth_usuarios.serializers import GoogleTokenSerializer, PerfilUsuarioSerializer
+from apps.auth_usuarios import services_invitado
+from apps.auth_usuarios.serializers import (
+    GoogleTokenSerializer,
+    InvitadoSerializer,
+    PerfilUsuarioSerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +114,7 @@ class MeAPIView(APIView):
         user = request.user
         foto_url = ""
 
+        # Intentar obtener foto_url desde PerfilExtendido si existe
         try:
             foto_url = user.perfil.foto_url
         except Exception:  # noqa: BLE001
@@ -122,3 +129,36 @@ class MeAPIView(APIView):
 
         serializer = PerfilUsuarioSerializer(datos)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class InvitadoLoginAPIView(APIView):
+    """
+    POST /api/v1/auth/invitado/
+
+    Genera un token de invitado temporal almacenado en Redis (TTL 2h).
+    No requiere registro ni contraseña.
+
+    Body (opcional):
+        { "nombre": "Juan" }
+
+    Respuestas:
+        201 Created  → { token, expira_en, nombre }
+        503          → Redis no disponible
+    """
+
+    def post(self, request: Request) -> Response:
+        serializer = InvitadoSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        nombre = serializer.validated_data.get("nombre", "")
+
+        try:
+            resultado = services_invitado.crear_token_invitado(nombre=nombre)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Error al crear token de invitado en Redis: %s", exc)
+            return Response(
+                {"error": "No se pudo crear el token de invitado. Intentá de nuevo."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(resultado, status=status.HTTP_201_CREATED)
