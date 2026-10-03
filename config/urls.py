@@ -26,6 +26,8 @@ urlpatterns = [
     path("api/v1/", include("apps.turnos.urls")),
     path("api/v1/", include("apps.centros.urls")),
     path("api/v1/", include("apps.atencion.urls")),
+    # Épica 2: autenticación (Google OAuth2 + modo invitado)
+    path("api/v1/", include("apps.auth_usuarios.urls")),
 ]
 
 # Handlers globales (activos cuando DEBUG=False)

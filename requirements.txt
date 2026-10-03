@@ -11,3 +11,7 @@ pika==1.4.4               # cliente de RabbitMQ (version mas nueva)
 reportlab==5.0.1          # generacion del comprobante PDF
 qrcode[pil]==8.2          # codigo QR del comprobante
 fakeredis==2.38.0         # Redis en memoria para los tests
+
+# --- AE3 (Épica 2) ---
+google-auth==2.40.0                      # verificar id_token de Google OAuth2
+djangorestframework-simplejwt==5.5.0     # JWT propios (access + refresh tokens)

@@ -58,10 +58,13 @@ INSTALLED_APPS = [
     # Librerias de terceros
     "rest_framework",
     "corsheaders",
+    "rest_framework_simplejwt",
     "apps.turnos",
     "apps.clinica",
     "apps.centros",
     "apps.atencion",
+    # Épica 2: autenticación
+    "apps.auth_usuarios",
 ]
 
 # ---------------------------------------------------------------------------
@@ -141,6 +144,14 @@ if len(sys.argv) > 1 and sys.argv[1] == "test":
     REDIS_URL = "fakeredis://"
     EVENTOS_HABILITADOS = False
 
+# ---------------------------------------------------------------------------
+# Épica 2: Google OAuth2
+# ---------------------------------------------------------------------------
+# El frontend usa Google Identity Services para obtener un id_token;
+# el backend lo verifica con esta Client ID. Sin ella, el endpoint
+# POST /api/v1/auth/google/ devuelve 401 (hasta que se configure).
+GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID", "TU_GOOGLE_CLIENT_ID_ACA")
+
 # Archivos generados (comprobantes PDF)
 MEDIA_ROOT = BASE_DIR / env("MEDIA_DIR", "media")
 
@@ -184,6 +195,15 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": None,
     "DATETIME_FORMAT": "%Y-%m-%dT%H:%M:%S%z",
+    # Épica 2: autenticación JWT via simplejwt
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        # Por defecto todas las vistas son abiertas; las que necesitan auth
+        # declaran permission_classes=[IsAuthenticated] explicitamente.
+        "rest_framework.permissions.AllowAny",
+    ],
 }
 
 # ---------------------------------------------------------------------------
