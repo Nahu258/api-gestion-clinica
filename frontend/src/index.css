@@ -1,0 +1,281 @@
+/*
+ * index.css — Sistema de estilos global de EmergenciaYA.
+ *
+ * Criterios de la Épica 2 / Épica 3:
+ *   ✓ Mobile-first (base 360px)
+ *   ✓ Botones mínimo 44px de alto (accesibilidad en emergencia)
+ *   ✓ Tipografía Inter para legibilidad máxima
+ *   ✓ Animaciones suaves, no bloqueantes
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --color-rojo:        #e63946;
+  --color-rojo-hover:  #c1121f;
+  --color-rojo-bg:     rgba(230, 57, 70, 0.08);
+  --color-blanco:      #ffffff;
+  --color-gris-claro:  #f8f9fa;
+  --color-gris-borde:  #dee2e6;
+  --color-texto:       #212529;
+  --color-texto-suave: #6c757d;
+  --color-sombra:      rgba(0, 0, 0, 0.12);
+
+  --radio-btn:  12px;
+  --radio-card: 20px;
+  --btn-alto:   52px;
+  --transicion: 0.2s ease;
+
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--color-texto);
+  background-color: var(--color-gris-claro);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body { min-height: 100dvh; min-height: 100vh; }
+
+/* ── Bienvenida ────────────────────────────────────────────────────────────────── */
+
+.bienvenida-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  min-height: 100vh;
+  padding: 1rem;
+  background: linear-gradient(135deg, #fff5f5 0%, #fff0f0 40%, #fafafa 100%);
+}
+
+.bienvenida-card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--color-blanco);
+  border-radius: var(--radio-card);
+  box-shadow: 0 2px 8px var(--color-sombra), 0 0 0 1px rgba(0,0,0,0.04);
+  padding: 2.5rem 1.75rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.bienvenida-header {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bienvenida-emoji {
+  font-size: 3rem;
+  line-height: 1;
+  animation: pulso 2s infinite;
+}
+
+@keyframes pulso {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.08); }
+}
+
+.bienvenida-titulo {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--color-rojo);
+  letter-spacing: -0.5px;
+}
+
+.bienvenida-subtitulo {
+  font-size: 1rem;
+  color: var(--color-texto-suave);
+  font-weight: 500;
+}
+
+.bienvenida-acciones {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.bienvenida-separador {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 0.75rem;
+  color: var(--color-gris-borde);
+  font-size: 0.85rem;
+}
+
+.bienvenida-separador::before,
+.bienvenida-separador::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-gris-borde);
+}
+
+.bienvenida-separador span { color: var(--color-texto-suave); flex-shrink: 0; }
+
+.bienvenida-aviso {
+  font-size: 0.8rem;
+  color: var(--color-texto-suave);
+  text-align: center;
+  margin-top: -0.25rem;
+}
+
+/* ── Botones ───────────────────────────────────────────────────────────────── */
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: var(--btn-alto);
+  border: none;
+  border-radius: var(--radio-btn);
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transicion), transform var(--transicion), box-shadow var(--transicion);
+  padding: 0 1.25rem;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn:active  { transform: scale(0.97); }
+.btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+.btn--invitado {
+  background: var(--color-rojo);
+  color: var(--color-blanco);
+  box-shadow: 0 4px 14px rgba(230, 57, 70, 0.35);
+  letter-spacing: 0.02em;
+}
+
+.btn--invitado:hover:not(:disabled) {
+  background: var(--color-rojo-hover);
+  box-shadow: 0 6px 20px rgba(193, 18, 31, 0.4);
+  transform: translateY(-1px);
+}
+
+.google-btn-wrapper {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  min-height: var(--btn-alto);
+  align-items: center;
+}
+
+#google-btn-container {
+  display: flex;
+  justify-content: center;
+  transition: opacity var(--transicion);
+}
+
+#google-btn-container.google-btn-loading { opacity: 0.5; pointer-events: none; }
+
+.btn--google {
+  background: var(--color-blanco);
+  color: var(--color-texto);
+  border: 1.5px solid var(--color-gris-borde);
+}
+
+.btn--disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-badge {
+  font-size: 0.7rem;
+  background: #fff3cd;
+  color: #856404;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 0.25rem;
+}
+
+/* ── Spinner ───────────────────────────────────────────────────────────────── */
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: girar 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes girar { to { transform: rotate(360deg); } }
+
+/* ── Toast ────────────────────────────────────────────────────────────────── */
+
+.toast {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 2rem);
+  width: max-content;
+  padding: 0.75rem 1.25rem;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  z-index: 9999;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  animation: deslizar 0.3s ease;
+  text-align: center;
+}
+
+.toast--error { background: #fff0f0; color: var(--color-rojo-hover); border: 1px solid #ffc9c9; }
+.toast--info  { background: #e7f5ff; color: #1971c2;                border: 1px solid #a5d8ff; }
+
+@keyframes deslizar {
+  from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ── Placeholder mapa ──────────────────────────────────────────────────────────────── */
+
+.mapa-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: 1rem;
+  background: var(--color-gris-claro);
+}
+
+.mapa-placeholder-card {
+  text-align: center;
+  background: var(--color-blanco);
+  padding: 2.5rem 2rem;
+  border-radius: var(--radio-card);
+  box-shadow: 0 2px 8px var(--color-sombra);
+  max-width: 360px;
+  width: 100%;
+}
+
+.mapa-placeholder-card h1 { font-size: 1.5rem; font-weight: 700; margin: 1rem 0 0.5rem; }
+
+.sesion-badge {
+  display: inline-block;
+  background: var(--color-rojo-bg);
+  color: var(--color-rojo);
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+@media (min-width: 480px) {
+  .bienvenida-card { padding: 3rem 2.5rem 2.5rem; }
+  .bienvenida-titulo { font-size: 2rem; }
+}

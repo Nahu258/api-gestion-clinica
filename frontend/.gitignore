@@ -1,0 +1,8 @@
+node_modules/
+frontend/dist/
+dist/
+frontend/.env.local
+frontend/.env.*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
