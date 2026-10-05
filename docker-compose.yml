@@ -1,9 +1,10 @@
 # ==============================================================================
-# AE2 — Entorno de Infraestructura Completo
+# EmergenciaYA — Entorno de Infraestructura y Aplicación Completo
 # Levantar todo:      docker compose up -d --build
 # Ver estado:         docker compose ps
 # Apagar:             docker compose down
 #
+# Frontend:            http://localhost:5173
 # API:                 http://localhost:8000/api/v1
 # Panel de RabbitMQ:   http://localhost:15672  (guest / guest)
 # ==============================================================================
@@ -69,6 +70,7 @@ services:
     command: >
       sh -c "python manage.py migrate --noinput &&
              python manage.py seed_turnos &&
+             python manage.py seed_centros &&
              python manage.py runserver 0.0.0.0:8000"
 
   # Consumidor de RabbitMQ para comprobantes PDF con QR (TurnoReservado)
@@ -115,6 +117,20 @@ services:
     command: python manage.py consume_rabbitmq
     restart: unless-stopped
 
+  # Frontend web (React/Vite) — EmergenciaYA
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      VITE_API_URL: http://api:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    restart: unless-stopped
+
 volumes:
   pgdata:
   media:
+
