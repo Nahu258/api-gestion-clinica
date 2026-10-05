@@ -13,7 +13,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { loginConGoogle, loginComoInvitado } from '../api/auth.js'
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
@@ -76,6 +76,8 @@ export default function Bienvenida() {
   }, [onGoogleCredential])
 
   useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return
+
     if (window.google?.accounts?.id) {
       inicializarGoogle()
     } else {
@@ -110,6 +112,13 @@ export default function Bienvenida() {
       )}
 
       <main className="bienvenida-card">
+        <Link
+          to="/"
+          className="btn-link"
+          style={{ alignSelf: 'flex-start', marginBottom: '-0.75rem', textDecoration: 'none', color: '#64748b', fontSize: '0.85rem' }}
+        >
+          ← Volver al inicio
+        </Link>
         <div className="bienvenida-header">
           <span className="bienvenida-emoji" aria-hidden="true">🚨</span>
           <h1 className="bienvenida-titulo">EmergenciaYA</h1>
