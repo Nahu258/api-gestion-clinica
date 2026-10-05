@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 
 from core.exceptions import DatosInvalidos
 from apps.centros import services
+from apps.centros.models import CentroEmergencia
 from apps.centros.serializers import CentroEmergenciaSerializer
 
 
@@ -88,3 +89,25 @@ class CentrosCercanosAPIView(APIView):
             raise DatosInvalidos(f"'radio_km' debe ser un número decimal. Recibido: '{radio_raw}'.")
 
         return lat, lon, radio_km, tipo
+
+
+class CentroDetalleAPIView(APIView):
+    """
+    Detalle de un centro de emergencia específico por ID.
+
+    GET /api/v1/centros/{id}/
+    """
+
+    def get(self, request: Request, pk: int) -> Response:
+        try:
+            centro = CentroEmergencia.objects.get(pk=pk, activo=True)
+        except CentroEmergencia.DoesNotExist:
+            return Response(
+                {"error": f"Centro de emergencia #{pk} no encontrado o inactivo."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            CentroEmergenciaSerializer(centro).data,
+            status=status.HTTP_200_OK,
+        )

@@ -335,3 +335,36 @@ class CentrosCercanosEndpointTest(APITestCase):
         """POST no está soportado en este endpoint."""
         resp = self.client.post(self.URL, {})
         self.assertEqual(resp.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+
+class CentroDetalleAPITestCase(APITestCase):
+    """Tests del endpoint GET /api/v1/centros/{id}/."""
+
+    def setUp(self):
+        self.centro = CentroEmergencia.objects.create(
+            nombre="Hospital Madariaga",
+            tipo=CentroEmergencia.Tipo.HOSPITAL,
+            direccion="Av. Marconi 45",
+            ciudad="Posadas",
+            telefono="(0376) 447-7000",
+            latitud=Decimal("-27.3621"),
+            longitud=Decimal("-55.9009"),
+            activo=True,
+        )
+
+    def test_200_obtener_centro_existente(self):
+        resp = self.client.get(f"/api/v1/centros/{self.centro.pk}/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data["id"], self.centro.pk)
+        self.assertEqual(resp.data["nombre"], "Hospital Madariaga")
+        self.assertEqual(resp.data["telefono"], "(0376) 447-7000")
+
+    def test_404_centro_inexistente(self):
+        resp = self.client.get("/api/v1/centros/99999/")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_404_centro_inactivo(self):
+        self.centro.activo = False
+        self.centro.save()
+        resp = self.client.get(f"/api/v1/centros/{self.centro.pk}/")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)

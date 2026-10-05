@@ -15,9 +15,10 @@ import logging
 import uuid
 from datetime import timedelta
 
-import redis as redis_lib
 from django.conf import settings
 from django.utils import timezone
+
+from core.redis_client import get_redis
 
 logger = logging.getLogger(__name__)
 
@@ -27,24 +28,8 @@ GUEST_TOKEN_PREFIX = "guest:"
 
 
 def _get_redis_client():
-    """
-    Devuelve un cliente de Redis configurado con la URL del proyecto.
-
-    Soporta fakeredis:// para los tests (configurado en settings.py cuando
-    sys.argv[1] == 'test').
-    """
-    url = settings.REDIS_URL
-
-    if url.startswith("fakeredis://"):
-        try:
-            import fakeredis
-            return fakeredis.FakeRedis(decode_responses=True)
-        except ImportError:
-            raise RuntimeError(
-                "fakeredis no está instalado. Agrégalo a requirements.txt."
-            )
-
-    return redis_lib.from_url(url, decode_responses=True)
+    """Devuelve el cliente único de Redis del proyecto."""
+    return get_redis()
 
 
 def crear_token_invitado(nombre: str = "") -> dict:

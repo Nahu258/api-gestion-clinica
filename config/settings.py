@@ -143,6 +143,8 @@ EVENTOS_HABILITADOS = env_bool("EVENTOS_HABILITADOS", True)
 if len(sys.argv) > 1 and sys.argv[1] == "test":
     REDIS_URL = "fakeredis://"
     EVENTOS_HABILITADOS = False
+    if env("GOOGLE_CLIENT_ID", "TU_GOOGLE_CLIENT_ID_ACA") == "TU_GOOGLE_CLIENT_ID_ACA":
+        os.environ["GOOGLE_CLIENT_ID"] = "test-client-id.apps.googleusercontent.com"
 
 # ---------------------------------------------------------------------------
 # Épica 2: Google OAuth2
@@ -215,14 +217,22 @@ CORS_ALLOW_CREDENTIALS = False
 # ---------------------------------------------------------------------------
 # Cache y estado efimero (Redis): historial clinico y eventos ya procesados
 # ---------------------------------------------------------------------------
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": env("REDIS_URL", "redis://127.0.0.1:6379/1"),
-        # Si Redis no responde, no colgar la request: se cae a la base.
-        "OPTIONS": {"socket_connect_timeout": 1, "socket_timeout": 1},
+if REDIS_URL.startswith("fakeredis://"):
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "default-locmem",
+        }
     }
-}
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+            # Si Redis no responde, no colgar la request: se cae a la base.
+            "OPTIONS": {"socket_connect_timeout": 1, "socket_timeout": 1},
+        }
+    }
 
 # ---------------------------------------------------------------------------
 # Mensajeria (RabbitMQ): eventos TurnoCreado / TurnoAtendido
