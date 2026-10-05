@@ -27,13 +27,15 @@ class SolicitudAtencionSerializer(serializers.ModelSerializer):
 
     Salida (GET):
         Todos los campos anteriores + campos de solo lectura:
-        id, estado, estado_legible, modo_legible, centro_nombre, creado_en, actualizado_en.
+        id, estado, estado_legible, modo_legible, centro_nombre, centro_telefono, centro_direccion, creado_en, actualizado_en.
     """
 
     # Campos de solo lectura calculados
-    estado_legible = serializers.CharField(source="get_estado_display", read_only=True)
-    modo_legible   = serializers.CharField(source="get_modo_display",   read_only=True)
-    centro_nombre  = serializers.CharField(source="centro.nombre",      read_only=True)
+    estado_legible   = serializers.CharField(source="get_estado_display", read_only=True)
+    modo_legible     = serializers.CharField(source="get_modo_display",   read_only=True)
+    centro_nombre    = serializers.CharField(source="centro.nombre",      read_only=True)
+    centro_telefono  = serializers.CharField(source="centro.telefono",    read_only=True)
+    centro_direccion = serializers.CharField(source="centro.direccion",   read_only=True)
 
     # modo es requerido en creación (el modelo tiene default pero la API lo exige)
     modo = serializers.ChoiceField(choices=SolicitudAtencion.Modo.choices)
@@ -52,6 +54,8 @@ class SolicitudAtencionSerializer(serializers.ModelSerializer):
             "id",
             "centro_id",
             "centro_nombre",
+            "centro_telefono",
+            "centro_direccion",
             "modo",
             "modo_legible",
             "motivo",
