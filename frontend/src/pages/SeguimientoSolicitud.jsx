@@ -1,18 +1,17 @@
 /**
- * SeguimientoSolicitud.jsx — Pantalla de seguimiento en tiempo real con polling.
+ * SeguimientoSolicitud.jsx - Centro de Seguimiento y Despacho de Guardia en Vivo.
  *
- * AE4-10 (issue #19):
- *   - Polling cada 10s a GET /api/v1/atencion/solicitudes/{id}/
- *   - El polling se detiene automáticamente en 'atendido' o 'cancelado'
- *   - Limpieza adecuada del interval al desmontar el componente (evita memory leaks)
- *   - Transición a 'aceptado': animación de checkmark + audio (Web Audio API) + vibración
- *   - Persistencia: guarda y recupera solicitud_id de sessionStorage ante recarga
- *   - Botón directo de llamada telefónica al centro (tel:)
- *   - Navegación de vuelta al mapa
+ * Épica 4 (AE4-10, issue #19) rediseñado bajo los más altos estándares visuales:
+ *   - Polling cada 10s con indicador de latido activo en tiempo real.
+ *   - Transición a 'aceptado': animación de confirmación médica + audio Web Audio API + vibración háptica.
+ *   - Stepper de progreso clínico con barra continua e íconos de estado.
+ *   - Instrucciones claras para el paciente al momento de ingresar a la guardia.
+ *   - Enlace directo a Google Maps para navegación GPS paso a paso.
+ *   - Botón directo de llamado telefónico al centro médico.
  */
 
 import { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 
 import {
   obtenerSolicitud,
@@ -21,7 +20,7 @@ import {
   obtenerUltimaSolicitudGuardada,
 } from '../api/atencion.js'
 
-// Helper de audio con Web Audio API (autónomo, sin assets externos, funciona 100% offline)
+// Web Audio API sintético para confirmación sonora
 function reproducirSonidoAceptado() {
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext
@@ -36,14 +35,13 @@ function reproducirSonidoAceptado() {
     osc1.type = 'sine'
     osc2.type = 'triangle'
 
-    // Secuencia de dos tonos alegres: Do (523Hz) -> Sol (784Hz)
     osc1.frequency.setValueAtTime(523.25, ahora)
     osc1.frequency.exponentialRampToValueAtTime(783.99, ahora + 0.15)
 
     osc2.frequency.setValueAtTime(659.25, ahora + 0.05)
-    osc2.frequency.exponentialRampToValueAtTime(1046.50, ahora + 0.2)
+    osc2.frequency.exponentialRampToValueAtTime(1046.5, ahora + 0.2)
 
-    gainNode.gain.setValueAtTime(0.3, ahora)
+    gainNode.gain.setValueAtTime(0.25, ahora)
     gainNode.gain.exponentialRampToValueAtTime(0.01, ahora + 0.45)
 
     osc1.connect(gainNode)
@@ -55,7 +53,7 @@ function reproducirSonidoAceptado() {
     osc1.stop(ahora + 0.45)
     osc2.stop(ahora + 0.45)
   } catch {
-    // Si el navegador bloquea audio sin interacción previa, ignorar silenciosamente
+    // Si el navegador bloquea audio sin interacción, ignorar silenciosamente
   }
 }
 
@@ -69,7 +67,6 @@ function vibrarDispositivo() {
   }
 }
 
-// Estados posibles según el backend (SolicitudAtencion.Estado)
 const ESTADOS = {
   PENDIENTE:   'pendiente',
   ACEPTADO:    'aceptado',
@@ -79,10 +76,10 @@ const ESTADOS = {
 }
 
 const PASOS_STEPPER = [
-  { key: ESTADOS.PENDIENTE,   label: 'Pendiente' },
-  { key: ESTADOS.ACEPTADO,    label: 'Aceptado' },
-  { key: ESTADOS.EN_ATENCION, label: 'En atención' },
-  { key: ESTADOS.ATENDIDO,    label: 'Atendido' },
+  { key: ESTADOS.PENDIENTE,   label: 'Aviso enviado',       icon: '📨' },
+  { key: ESTADOS.ACEPTADO,    label: 'Guardia alertada',   icon: '🩺' },
+  { key: ESTADOS.EN_ATENCION, label: 'En triage/atención', icon: '🏥' },
+  { key: ESTADOS.ATENDIDO,    label: 'Atención completada',icon: '✅' },
 ]
 
 export default function SeguimientoSolicitud() {
@@ -90,7 +87,6 @@ export default function SeguimientoSolicitud() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Determinar el ID de la solicitud: del param, del router state o de sessionStorage
   const [solicitudId, setSolicitudId] = useState(() => {
     if (paramId) return paramId
     if (location.state?.solicitud?.id) return String(location.state.solicitud.id)
@@ -101,23 +97,20 @@ export default function SeguimientoSolicitud() {
   const [cargando, setCargando] = useState(!solicitud)
   const [error, setError] = useState(null)
   const [cancelando, setCancelando] = useState(false)
+  const [mostrarConfirmacionCancelar, setMostrarConfirmacionCancelar] = useState(false)
   const [ultimaActualizacion, setUltimaActualizacion] = useState(new Date())
 
-  // Referencia para detectar transición a 'aceptado'
   const estadoAnteriorRef = useRef(solicitud?.estado || null)
   const pollingIntervalRef = useRef(null)
 
-  // Guardar solicitudId en sessionStorage cuando se determine
   useEffect(() => {
     if (solicitudId) {
       sessionStorage.setItem(KEY_SOLICITUD_ID, String(solicitudId))
     }
   }, [solicitudId])
 
-  // Carga inicial y configuración del polling cada 10 segundos
   useEffect(() => {
     if (!solicitudId) {
-      // Intentar leer de sessionStorage
       const guardadoId = sessionStorage.getItem(KEY_SOLICITUD_ID)
       if (guardadoId) {
         setSolicitudId(guardadoId)
@@ -145,7 +138,6 @@ export default function SeguimientoSolicitud() {
         setCargando(false)
         setUltimaActualizacion(new Date())
 
-        // Detectar si cambió a 'aceptado'
         if (
           data.estado === ESTADOS.ACEPTADO &&
           estadoAnteriorRef.current &&
@@ -157,7 +149,6 @@ export default function SeguimientoSolicitud() {
 
         estadoAnteriorRef.current = data.estado
 
-        // Criterio de aceptación: detener polling si llega a ATENDIDO o CANCELADO
         if (data.estado === ESTADOS.ATENDIDO || data.estado === ESTADOS.CANCELADO) {
           if (pollingIntervalRef.current) {
             clearInterval(pollingIntervalRef.current)
@@ -166,18 +157,13 @@ export default function SeguimientoSolicitud() {
         }
       } catch (err) {
         if (!activo) return
-        // Si no hay red, mantener el último dato conocido
         setCargando(false)
       }
     }
 
-    // Consulta inicial inmediata
     consultarEstado()
-
-    // Configurar polling cada 10 segundos
     pollingIntervalRef.current = setInterval(consultarEstado, 10000)
 
-    // Criterio de aceptación: cleanup del interval si navega fuera
     return () => {
       activo = false
       if (pollingIntervalRef.current) {
@@ -189,21 +175,19 @@ export default function SeguimientoSolicitud() {
 
   const handleCancelar = async () => {
     if (!solicitudId) return
-    const confirmar = window.confirm('¿Seguro que querés cancelar esta solicitud de atención?')
-    if (!confirmar) return
-
     setCancelando(true)
     try {
       const data = await cancelarSolicitud(solicitudId)
       setSolicitud(data)
       setCancelando(false)
-      // Detener polling al cancelar
+      setMostrarConfirmacionCancelar(false)
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current)
         pollingIntervalRef.current = null
       }
     } catch (err) {
       setCancelando(false)
+      setMostrarConfirmacionCancelar(false)
       alert(err.message || 'No se pudo cancelar la solicitud.')
     }
   }
@@ -220,11 +204,13 @@ export default function SeguimientoSolicitud() {
 
   if (cargando) {
     return (
-      <div className="seguimiento-page">
-        <div className="seguimiento-card">
-          <div className="spinner" style={{ borderColor: 'rgba(230, 57, 70, 0.3)', borderTopColor: '#e63946', width: '36px', height: '36px', margin: '1rem auto' }} />
-          <h3>Cargando seguimiento...</h3>
-          <p style={{ color: '#6c757d', fontSize: '0.85rem' }}>Conectando con el centro de salud.</p>
+      <div className="seguimiento-screen-layout">
+        <div className="seguimiento-hub-card">
+          <div className="seguimiento-loading-pulse">
+            <span className="action-spinner action-spinner--red" aria-hidden="true" />
+            <h3>Conectando con la guardia médica...</h3>
+            <p>Sincronizando estado en vivo.</p>
+          </div>
         </div>
       </div>
     )
@@ -232,16 +218,16 @@ export default function SeguimientoSolicitud() {
 
   if (error || !solicitud) {
     return (
-      <div className="seguimiento-page">
-        <div className="seguimiento-card">
+      <div className="seguimiento-screen-layout">
+        <div className="seguimiento-hub-card">
           <span style={{ fontSize: '3rem' }}>🔍</span>
-          <h2>Sin solicitud activa</h2>
-          <p style={{ color: '#6c757d', fontSize: '0.9rem' }}>
-            {error || 'No se encontró ninguna solicitud activa en este momento.'}
+          <h2>Sin aviso activo</h2>
+          <p style={{ color: '#64748b' }}>
+            {error || 'No tenés ningún aviso o solicitud de guardia activa en este momento.'}
           </p>
-          <button className="btn btn--invitado" onClick={() => navigate('/mapa')} style={{ marginTop: '1rem' }}>
+          <Link to="/mapa" className="btn btn--hero-primary" style={{ marginTop: '1rem' }}>
             Ver mapa de centros
-          </button>
+          </Link>
         </div>
       </div>
     )
@@ -253,167 +239,209 @@ export default function SeguimientoSolicitud() {
   const esAtendido = estado === ESTADOS.ATENDIDO
   const esEnAtencion = estado === ESTADOS.EN_ATENCION
 
-  // Índice para el stepper
   const indiceActual = PASOS_STEPPER.findIndex((p) => p.key === estado)
 
   return (
-    <div className="seguimiento-page">
-      <main className="seguimiento-card" role="main" aria-live="polite">
-        {/* ── Encabezado de Estado con Ícono y Animación ── */}
-        <div className="seguimiento-header-status">
-          {esAceptado && (
-            <div className="status-animation-icon status-animation-icon--checkmark" aria-hidden="true">
-              ✅
-            </div>
-          )}
-          {estado === ESTADOS.PENDIENTE && (
-            <div className="status-animation-icon status-animation-icon--pulse" aria-hidden="true">
-              ⏳
-            </div>
-          )}
-          {esEnAtencion && (
-            <div className="status-animation-icon status-animation-icon--pulse" aria-hidden="true">
-              🩺
-            </div>
-          )}
-          {esAtendido && (
-            <div className="status-animation-icon status-animation-icon--checkmark" aria-hidden="true">
-              🎉
-            </div>
-          )}
-          {esCancelado && (
-            <div className="status-animation-icon" aria-hidden="true">
-              ❌
-            </div>
-          )}
+    <div className="seguimiento-screen-layout">
+      {/* ── Topbar de navegación ── */}
+      <header className="seguimiento-topbar">
+        <Link to="/mapa" className="seguimiento-back-link">
+          <span aria-hidden="true">←</span>
+          <span>Volver al mapa</span>
+        </Link>
+        <span className="live-heartbeat-pill">
+          <span className="pulse-green-dot" aria-hidden="true" />
+          <span>Canal de guardia activo</span>
+        </span>
+      </header>
 
-          <h1 className="seguimiento-titulo-estado">
-            {esAceptado && '¡Solicitud aceptada!'}
-            {estado === ESTADOS.PENDIENTE && 'Solicitud enviada'}
-            {esEnAtencion && 'En atención'}
-            {esAtendido && 'Atención completada'}
-            {esCancelado && 'Solicitud cancelada'}
-          </h1>
+      <main className="seguimiento-content-container">
+        <article className="seguimiento-hub-card">
+          {/* ── Header de Estado Dinámico ── */}
+          <div className="status-hero-banner">
+            <div className={`status-radar-ring ${esAceptado ? 'status-radar-ring--success' : ''}`}>
+              <span className="status-radar-icon">
+                {esAceptado && '✅'}
+                {estado === ESTADOS.PENDIENTE && '⏳'}
+                {esEnAtencion && '🩺'}
+                {esAtendido && '🎉'}
+                {esCancelado && '❌'}
+              </span>
+            </div>
 
-          <h2 className="seguimiento-centro-nombre">
-            {solicitud.centro_nombre || 'Centro de Emergencia'}
-          </h2>
+            <div className="status-hero-text">
+              <span className="status-category-pill">
+                {esAceptado && 'Guardia Confirmada'}
+                {estado === ESTADOS.PENDIENTE && 'Aviso en Transmisión'}
+                {esEnAtencion && 'Atención Médica en Curso'}
+                {esAtendido && 'Guardia Finalizada'}
+                {esCancelado && 'Aviso Cancelado'}
+              </span>
 
-          <span className="seguimiento-hora">
-            Solicitado a las {formatearHora(solicitud.creado_en) || 'recientemente'}
-          </span>
-        </div>
+              <h1 className="status-headline">
+                {esAceptado && '¡El centro médico confirmó tu llegada!'}
+                {estado === ESTADOS.PENDIENTE && 'Aviso enviado al centro de salud'}
+                {esEnAtencion && 'Atención médica en curso'}
+                {esAtendido && 'Atención médica completada'}
+                {esCancelado && 'Solicitud cancelada'}
+              </h1>
 
-        {/* ── Stepper Visual de Progreso (si no está cancelado) ── */}
-        {!esCancelado && (
-          <div className="seguimiento-stepper" aria-label="Progreso del estado de atención">
-            {PASOS_STEPPER.map((paso, idx) => {
-              const completado = indiceActual > idx
-              const activo = indiceActual === idx
-              return (
+              <h2 className="status-center-title">
+                {solicitud.centro_nombre || 'Centro de Emergencia'}
+              </h2>
+
+              <p className="status-timestamp">
+                Registrado a las {formatearHora(solicitud.creado_en) || 'recientemente'} · Posadas
+              </p>
+            </div>
+          </div>
+
+          {/* ── Stepper de Progreso Clínico ── */}
+          {!esCancelado && (
+            <div className="clinical-stepper" aria-label="Progreso de atención de emergencia">
+              <div className="stepper-track-bar">
                 <div
-                  key={paso.key}
-                  className={`step-item ${completado ? 'step-item--completado' : ''} ${activo ? 'step-item--activo' : ''}`}
-                >
-                  <div className="step-dot">
-                    {completado ? '✓' : idx + 1}
-                  </div>
-                  <span className="step-label">{paso.label}</span>
-                </div>
-              )
-            })}
+                  className="stepper-progress-fill"
+                  style={{
+                    width: `${Math.max(0, Math.min(100, (indiceActual / (PASOS_STEPPER.length - 1)) * 100))}%`,
+                  }}
+                />
+              </div>
+
+              <div className="stepper-nodes-row">
+                {PASOS_STEPPER.map((paso, idx) => {
+                  const completado = indiceActual > idx
+                  const activo = indiceActual === idx
+                  return (
+                    <div
+                      key={paso.key}
+                      className={`stepper-node ${completado ? 'stepper-node--completed' : ''} ${activo ? 'stepper-node--active' : ''}`}
+                    >
+                      <div className="node-bubble">
+                        {completado ? '✓' : paso.icon}
+                      </div>
+                      <span className="node-caption">{paso.label}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Mensaje e Instrucciones Médicas ── */}
+          <div className="triage-instruction-card">
+            <h3 className="triage-instruction-title">
+              <span aria-hidden="true">📋</span>
+              <span>Instrucciones de recepción en guardia:</span>
+            </h3>
+
+            {estado === ESTADOS.PENDIENTE && (
+              <p className="triage-instruction-desc">
+                Tu aviso fue transmitido. Si te dirigís en vehículo, conducí con precaución. Al llegar, acercate a la mesa de triage e identificá tu nombre.
+              </p>
+            )}
+
+            {esAceptado && (
+              <p className="triage-instruction-desc">
+                <strong>El equipo de triage ya fue alertado.</strong> Tené a mano tu DNI o credencial de obra social si contás con ella. Ingresá por el acceso principal de guardia.
+              </p>
+            )}
+
+            {esEnAtencion && (
+              <p className="triage-instruction-desc">
+                El equipo médico está asistiendo tu caso. Por favor seguí las indicaciones de los profesionales de la salud.
+              </p>
+            )}
+
+            {esAtendido && (
+              <p className="triage-instruction-desc">
+                La consulta ha concluido exitosamente. Te deseamos una pronta recuperación.
+              </p>
+            )}
+
+            {esCancelado && (
+              <p className="triage-instruction-desc">
+                El aviso de atención fue cancelado. Si aún requerís asistencia urgente, podés buscar otro centro disponible en el mapa o llamar al 107.
+              </p>
+            )}
+
+            {solicitud.centro_direccion && (
+              <div className="destination-address-chip">
+                <span>📍 Dirección de destino:</span>
+                <strong>{solicitud.centro_direccion}</strong>
+              </div>
+            )}
           </div>
-        )}
 
-        {/* ── Mensaje descriptivo con datos de contacto ── */}
-        <div
-          className="seguimiento-mensaje-box"
-          style={{
-            borderLeftColor: esCancelado
-              ? '#e63946'
-              : esAceptado || esAtendido
-              ? '#20c997'
-              : '#f59f00',
-          }}
-        >
-          {estado === ESTADOS.PENDIENTE && (
-            <p>
-              "Tu solicitud fue recibida. El centro te contactará
-              {solicitud.centro_telefono ? ` al ${solicitud.centro_telefono}` : ''}."
-            </p>
+          {/* ── Indicador de Polling en vivo ── */}
+          {!esAtendido && !esCancelado && (
+            <div className="live-heartbeat-box">
+              <span className="pulse-green-dot" aria-hidden="true" />
+              <span>Canal seguro con el centro médico · Actualización cada 10s</span>
+            </div>
           )}
 
-          {esAceptado && (
-            <p>
-              <strong>¡El centro aceptó tu solicitud!</strong> El equipo médico ya fue alertado de tu llegada.
-              {solicitud.centro_direccion && (
-                <span> Dirección: <em>{solicitud.centro_direccion}</em>.</span>
-              )}
-            </p>
-          )}
+          {/* ── Botones de Acción Inmediata ── */}
+          <div className="tracking-actions-stack">
+            {solicitud.centro_telefono && !esAtendido && (
+              <a
+                href={`tel:${solicitud.centro_telefono}`}
+                className="btn btn--action-phone"
+                title={`Llamar al centro médico: ${solicitud.centro_telefono}`}
+              >
+                <span>📞 Llamar al centro médico ({solicitud.centro_telefono})</span>
+              </a>
+            )}
 
-          {esEnAtencion && (
-            <p>
-              <strong>Estás en atención.</strong> El personal del centro está asistiendo tu caso de emergencia.
-            </p>
-          )}
+            <Link to="/mapa" className="btn btn--hero-secondary">
+              <span>🗺️ Ver otros centros en el mapa</span>
+            </Link>
 
-          {esAtendido && (
-            <p>
-              <strong>Atención finalizada.</strong> La guardia ha registrado tu consulta como completada. Esperamos tu pronta recuperación.
-            </p>
-          )}
-
-          {esCancelado && (
-            <p>
-              <strong>La solicitud fue cancelada.</strong> Si todavía necesitás ayuda médica urgente, podés buscar otro centro cercano disponible.
-            </p>
-          )}
-        </div>
-
-        {/* ── Indicador de Polling activo ── */}
-        {!esAtendido && !esCancelado && (
-          <div className="seguimiento-polling-badge">
-            <span className="punto-verde" />
-            <span>Actualizando en vivo cada 10s</span>
+            {(estado === ESTADOS.PENDIENTE || estado === ESTADOS.ACEPTADO) && (
+              <button
+                type="button"
+                className="btn-cancel-link"
+                onClick={() => setMostrarConfirmacionCancelar(true)}
+                disabled={cancelando}
+              >
+                {cancelando ? 'Cancelando...' : 'Cancelar aviso de guardia'}
+              </button>
+            )}
           </div>
-        )}
-
-        {/* ── Botones de Acción ── */}
-        <div className="seguimiento-acciones">
-          {/* Botón de llamada directa si hay teléfono */}
-          {solicitud.centro_telefono && !esAtendido && (
-            <a
-              href={`tel:${solicitud.centro_telefono}`}
-              className="btn-tel-grande"
-              title={`Llamar al centro: ${solicitud.centro_telefono}`}
-            >
-              📞 Llamar al centro ({solicitud.centro_telefono})
-            </a>
-          )}
-
-          {/* Botón para volver al mapa */}
-          <button
-            type="button"
-            className="btn btn--secundario"
-            onClick={() => navigate('/mapa')}
-          >
-            🗺️ Volver al mapa
-          </button>
-
-          {/* Opción de cancelar si está pendiente o aceptado */}
-          {(estado === ESTADOS.PENDIENTE || estado === ESTADOS.ACEPTADO) && (
-            <button
-              type="button"
-              className="btn-cancelar-solicitud"
-              onClick={handleCancelar}
-              disabled={cancelando}
-            >
-              {cancelando ? 'Cancelando...' : 'Cancelar solicitud'}
-            </button>
-          )}
-        </div>
+        </article>
       </main>
+
+      {/* Modal de Confirmación de Cancelación */}
+      {mostrarConfirmacionCancelar && (
+        <div
+          className="emergency-modal-backdrop"
+          onClick={() => setMostrarConfirmacionCancelar(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="cancel-confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>¿Querés cancelar este aviso de guardia?</h3>
+            <p>Si cancelás, el centro médico liberará el turno previo de triage.</p>
+            <div className="cancel-dialog-actions">
+              <button
+                type="button"
+                className="btn btn--hero-secondary btn--sm"
+                onClick={() => setMostrarConfirmacionCancelar(false)}
+              >
+                Mantener activo
+              </button>
+              <button
+                type="button"
+                className="btn btn--hero-primary btn--sm"
+                onClick={handleCancelar}
+                disabled={cancelando}
+              >
+                Sí, cancelar aviso
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

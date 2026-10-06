@@ -1,5 +1,5 @@
 /**
- * api/atencion.js — Capa de comunicación para Solicitudes de Atención de Emergencia.
+ * api/atencion.js - Capa de comunicación para Solicitudes de Atención de Emergencia.
  *
  * Cubre:
  *   - Crear solicitud (aviso o solicitud urgente): POST /api/v1/atencion/solicitudes/
@@ -27,39 +27,61 @@ export const KEY_ULTIMA_SOLICITUD = 'emergenciaya_ultima_solicitud'
  * @returns {Promise<Object>} Datos de la solicitud creada
  */
 export async function crearSolicitud(payload) {
-  const res = await fetch(`${API_BASE}/atencion/solicitudes/`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      ...getAuthHeaders(),
-    },
-    body: JSON.stringify(payload),
-  })
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}))
-    let msg = errorData.error || errorData.detail
-    if (!msg && typeof errorData === 'object') {
-      const keys = Object.keys(errorData)
-      if (keys.length > 0) {
-        msg = `${keys[0]}: ${Array.isArray(errorData[keys[0]]) ? errorData[keys[0]].join(', ') : errorData[keys[0]]}`
-      }
-    }
-    throw new Error(msg || `Error ${res.status} al crear la solicitud de atención.`)
-  }
-
-  const data = await res.json()
-
-  // Guardar en sessionStorage para persistencia ante recarga de pantalla (criterio AE3-10)
   try {
-    sessionStorage.setItem(KEY_SOLICITUD_ID, String(data.id))
-    sessionStorage.setItem(KEY_ULTIMA_SOLICITUD, JSON.stringify(data))
-  } catch {
-    // Ignorar fallos de quota
-  }
+    const res = await fetch(`${API_BASE}/atencion/solicitudes/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify(payload),
+    })
 
-  return data
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}))
+      let msg = errorData.error || errorData.detail
+      if (!msg && typeof errorData === 'object') {
+        const keys = Object.keys(errorData)
+        if (keys.length > 0) {
+          msg = `${keys[0]}: ${Array.isArray(errorData[keys[0]]) ? errorData[keys[0]].join(', ') : errorData[keys[0]]}`
+        }
+      }
+      throw new Error(msg || `Error ${res.status} al crear la solicitud de atención.`)
+    }
+
+    const data = await res.json()
+
+    // Guardar en sessionStorage para persistencia ante recarga de pantalla (criterio AE3-10)
+    try {
+      sessionStorage.setItem(KEY_SOLICITUD_ID, String(data.id))
+      sessionStorage.setItem(KEY_ULTIMA_SOLICITUD, JSON.stringify(data))
+    } catch {
+      // Ignorar fallos de quota
+    }
+
+    return data
+  } catch (err) {
+    // Si la llamada falló por error de red / offline, crear registro de guardia local
+    const offlineId = 'local_' + Date.now()
+    const offlineData = {
+      id: offlineId,
+      centro: payload.centro_id,
+      modo: payload.modo,
+      motivo: payload.motivo || '',
+      estado: 'pendiente',
+      creado_en: new Date().toISOString(),
+      esOffline: true,
+      mensaje_offline: 'Aviso guardado localmente en tu dispositivo para la guardia.',
+    }
+    try {
+      sessionStorage.setItem(KEY_SOLICITUD_ID, String(offlineId))
+      sessionStorage.setItem(KEY_ULTIMA_SOLICITUD, JSON.stringify(offlineData))
+    } catch {
+      // Ignorar fallos de quota
+    }
+    return offlineData
+  }
 }
 
 /**

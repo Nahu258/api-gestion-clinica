@@ -6,7 +6,7 @@ import DetalleCentro from './pages/DetalleCentro.jsx'
 import SeguimientoSolicitud from './pages/SeguimientoSolicitud.jsx'
 
 /**
- * App — enrutador raíz de EmergenciaYA.
+ * App - enrutador raíz de EmergenciaYA.
  *
  * Rutas:
  *   /                → Landing page principal con información y acceso

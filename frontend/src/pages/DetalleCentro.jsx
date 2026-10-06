@@ -1,18 +1,17 @@
 /**
- * DetalleCentro.jsx — Pantalla de detalle del centro de emergencia y solicitud.
+ * DetalleCentro.jsx - Ficha Médica y Solicitud de Atención Inmediata.
  *
- * AE4-09 (issue #18):
- *   - Muestra datos del centro (nombre, dirección, teléfono link tel:, distancia, 24h)
- *   - Botón grande rojo "🚨 Voy en camino - Avisarles" visible sin scroll en 360px
- *   - Botón secundario "📅 Solicitar atención urgente"
- *   - Formulario modal con nombre (validado para invitados), motivo breve (max 200 chars)
- *   - Prevención de doble submit con spinner y botón deshabilitado
- *   - Manejo de errores de red con reintento
- *   - Redirige a /seguimiento/:id tras creación exitosa
+ * Épica 3 (AE4-09, issue #18) rediseñada para situaciones críticas de salud:
+ *   - Ficha del centro con badge de guardia 24h, distancia y tiempo estimado de viaje.
+ *   - Enlace directo a navegación GPS (Google Maps / Waze).
+ *   - Botón de llamada directa de 1 toque con el número del hospital.
+ *   - Botón heroico "🚨 Voy en camino - Avisar a la guardia" visible sin scroll.
+ *   - Modal de solicitud rápida con chips de síntomas frecuentes (1 toque para emergencias).
+ *   - Validación clara, prevención de doble envío y redirección a seguimiento.
  */
 
 import { useState, useEffect } from 'react'
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 
 import { obtenerCentroPorId } from '../api/centros.js'
 import { crearSolicitud } from '../api/atencion.js'
@@ -27,12 +26,21 @@ const TIPOS_EMOJI = {
   otro:     '📍',
 }
 
+const SINTOMAS_RAPIDOS = [
+  'Accidente / Traumatismo',
+  'Dificultad respiratoria',
+  'Dolor agudo en el pecho',
+  'Fiebre alta / Pediatría',
+  'Hemorragia o corte',
+  'Desmayo / Pérdida de conocimiento',
+]
+
 export default function DetalleCentro() {
   const { id } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Datos previos pasados por navegación
+  // Datos previos pasados por la navegación
   const centroInicial = location.state?.centro || null
   const ubicacionUsuario = location.state?.ubicacionUsuario || null
 
@@ -40,7 +48,7 @@ export default function DetalleCentro() {
   const [cargando, setCargando] = useState(!centroInicial)
   const [errorCarga, setErrorCarga] = useState(null)
 
-  // Estado del modal de solicitud
+  // Modal de solicitud
   const [modalAbierto, setModalAbierto] = useState(false)
   const [modoSeleccionado, setModoSeleccionado] = useState('aviso') // 'aviso' | 'solicitud'
   const [nombreInvitado, setNombreInvitado] = useState('')
@@ -55,7 +63,7 @@ export default function DetalleCentro() {
   const headers = getAuthHeaders()
   const esInvitado = !!headers['X-Guest-Token']
 
-  // Cargar centro si no vino en el router state (ej. recarga de página)
+  // Cargar centro si se entra directo por URL o recarga
   useEffect(() => {
     if (!centro && id) {
       setCargando(true)
@@ -86,14 +94,23 @@ export default function DetalleCentro() {
     setErrorEnvio(null)
   }
 
+  const seleccionarSintoma = (sintoma) => {
+    if (motivo) {
+      if (!motivo.includes(sintoma)) {
+        setMotivo(`${motivo}, ${sintoma}`.slice(0, 200))
+      }
+    } else {
+      setMotivo(sintoma)
+    }
+  }
+
   const handleEnviarSolicitud = async (e) => {
     e.preventDefault()
     setErrorValidacion('')
     setErrorEnvio(null)
 
-    // Criterio de aceptación: validar que el nombre no esté vacío si es invitado y quiere seguimiento
     if (esInvitado && !nombreInvitado.trim()) {
-      setErrorValidacion('Por favor ingresá tu nombre para que el centro pueda identificarte.')
+      setErrorValidacion('Por favor ingresá tu nombre para que los médicos te identifiquen.')
       return
     }
 
@@ -118,27 +135,26 @@ export default function DetalleCentro() {
       const solicitudCreada = await crearSolicitud(payload)
       setEnviando(false)
       setModalAbierto(false)
-      // Redirigir a pantalla de seguimiento (AE3-10) con el id de la solicitud
       navigate(`/seguimiento/${solicitudCreada.id}`, {
         state: { solicitud: solicitudCreada, centro },
       })
     } catch (err) {
       setEnviando(false)
-      setErrorEnvio(err.message || 'Error al enviar la solicitud. Por favor reintentá.')
+      setErrorEnvio(err.message || 'Error al procesar el aviso. Por favor reintentá.')
     }
   }
 
   if (cargando) {
     return (
-      <div className="detalle-page">
-        <header className="detalle-topbar">
-          <button className="btn-volver" onClick={() => navigate('/mapa')}>
+      <div className="detalle-screen-layout">
+        <header className="detalle-nav-bar">
+          <Link to="/mapa" className="detalle-back-btn">
             ← Volver al mapa
-          </button>
+          </Link>
         </header>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '50vh', gap: '1rem' }}>
-          <div className="spinner" style={{ borderColor: 'rgba(230, 57, 70, 0.3)', borderTopColor: '#e63946', width: '32px', height: '32px' }} />
-          <p style={{ color: '#6c757d', fontWeight: 600 }}>Cargando datos del centro...</p>
+        <div className="detalle-loading-box">
+          <span className="action-spinner action-spinner--red" aria-hidden="true" />
+          <p>Conectando con la guardia del centro médico...</p>
         </div>
       </div>
     )
@@ -146,177 +162,259 @@ export default function DetalleCentro() {
 
   if (errorCarga || !centro) {
     return (
-      <div className="detalle-page">
-        <header className="detalle-topbar">
-          <button className="btn-volver" onClick={() => navigate('/mapa')}>
+      <div className="detalle-screen-layout">
+        <header className="detalle-nav-bar">
+          <Link to="/mapa" className="detalle-back-btn">
             ← Volver al mapa
-          </button>
+          </Link>
         </header>
-        <div style={{ padding: '2rem 1rem', textAlign: 'center' }}>
-          <p style={{ color: '#c92a2a', fontWeight: 700 }}>⚠️ {errorCarga || 'Centro no encontrado'}</p>
-          <button className="btn btn--invitado" onClick={() => navigate('/mapa')} style={{ marginTop: '1rem' }}>
-            Volver al mapa
-          </button>
+        <div className="detalle-error-box">
+          <p>⚠️ {errorCarga || 'Centro médico no encontrado'}</p>
+          <Link to="/mapa" className="btn btn--hero-primary btn--sm">
+            Volver a la lista de centros
+          </Link>
         </div>
       </div>
     )
   }
 
   const iconoTipo = TIPOS_EMOJI[centro.tipo] || '📍'
+  const minutosEstimados =
+    centro.distancia_km != null
+      ? Math.max(3, Math.round(centro.distancia_km * 2.2))
+      : null
+
+  const urlGoogleMaps = `https://www.google.com/maps/dir/?api=1&destination=${centro.latitud},${centro.longitud}`
 
   return (
-    <div className="detalle-page">
-      {/* ── Barra superior con botón volver ── */}
-      <header className="detalle-topbar">
-        <button
-          className="btn-volver"
-          onClick={() => navigate('/mapa')}
-          aria-label="Volver al mapa de centros"
-        >
-          ← Volver
-        </button>
-        <h1 className="detalle-topbar-titulo">{centro.nombre}</h1>
+    <div className="detalle-screen-layout">
+      {/* ── Topbar de navegación ── */}
+      <header className="detalle-nav-bar" role="banner">
+        <div className="detalle-nav-inner">
+          <Link to="/mapa" className="detalle-back-btn" aria-label="Volver al mapa">
+            <span aria-hidden="true">←</span>
+            <span>Volver al mapa</span>
+          </Link>
+          <div className="detalle-guardia-indicator">
+            <span className="pulse-green-dot" aria-hidden="true" />
+            <span>Guardia activa en Posadas</span>
+          </div>
+        </div>
       </header>
 
-      {/* ── Contenido de la pantalla ── */}
-      <main className="detalle-content">
-        <section className="detalle-card-info">
-          <div className="detalle-header-centro">
-            <span className="detalle-icono-grande" aria-hidden="true">
-              {iconoTipo}
-            </span>
-            <div>
-              <h2 className="detalle-nombre-centro">{centro.nombre}</h2>
-              <div className="detalle-meta-row">
-                <span className="badge badge--tipo">{centro.tipo_legible || centro.tipo}</span>
+      {/* ── Contenido Principal ── */}
+      <main className="detalle-main-content">
+        <div className="detalle-content-wrapper">
+          {/* Card Principal del Centro Médico */}
+          <article className="medical-profile-card">
+            <div className="profile-badge-row">
+              <span className="profile-icon-large" aria-hidden="true">
+                {iconoTipo}
+              </span>
+              <div className="profile-badges-wrap">
+                <span className="badge badge--tipo">
+                  {centro.tipo_legible || 'Centro de Salud'}
+                </span>
                 <span className={`badge ${centro.atiende_24h ? 'badge--green' : 'badge--gray'}`}>
-                  {centro.atiende_24h ? '⏰ Abierto las 24 horas' : 'Horario limitado'}
-                </span>
-                {centro.distancia_km != null && (
-                  <span className="distancia-badge">📱 Distancia: {centro.distancia_km} km</span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="detalle-info-items">
-            <div className="detalle-item">
-              <span aria-hidden="true">📍</span>
-              <span><strong>Dirección:</strong> {centro.direccion}, {centro.ciudad}</span>
-            </div>
-
-            {centro.telefono ? (
-              <div className="detalle-item">
-                <span aria-hidden="true">📞</span>
-                <span>
-                  <strong>Teléfono:</strong>{' '}
-                  <a href={`tel:${centro.telefono}`} title={`Llamar a ${centro.nombre}`}>
-                    {centro.telefono}
-                  </a>
+                  {centro.atiende_24h ? '⏰ Abierto 24 Horas' : 'Horario limitado'}
                 </span>
               </div>
-            ) : null}
-          </div>
-        </section>
+            </div>
 
-        {/* ── Botones de Acción de Emergencia ── */}
-        {/* El botón "Voy en camino" es grande, rojo y visible sin scroll en 360px */}
-        <section className="detalle-acciones-emergencia" aria-label="Acciones de atención inmediata">
-          <button
-            type="button"
-            className="btn btn-voy-en-camino"
-            onClick={() => abrirModal('aviso')}
-            id="btn-voy-en-camino"
-          >
-            🚨 Voy en camino - Avisarles
-          </button>
+            <h1 className="profile-title">{centro.nombre}</h1>
 
-          <button
-            type="button"
-            className="btn btn-solicitar-urgente"
-            onClick={() => abrirModal('solicitud')}
-            id="btn-solicitar-urgente"
-          >
-            📅 Solicitar atención urgente
-          </button>
-        </section>
+            {/* Métrica de distancia y tiempo */}
+            <div className="profile-metrics-strip">
+              {centro.distancia_km != null && (
+                <div className="metric-pill">
+                  <span className="metric-icon" aria-hidden="true">📍</span>
+                  <span className="metric-data">{centro.distancia_km} km de distancia</span>
+                </div>
+              )}
+              {minutosEstimados != null && (
+                <div className="metric-pill metric-pill--time">
+                  <span className="metric-icon" aria-hidden="true">🚗</span>
+                  <span className="metric-data">~{minutosEstimados} min en vehículo</span>
+                </div>
+              )}
+            </div>
+
+            {/* Datos de contacto y ubicación */}
+            <div className="profile-details-list">
+              <div className="detail-row">
+                <span className="detail-row-icon" aria-hidden="true">📍</span>
+                <div className="detail-row-text">
+                  <strong>Dirección:</strong>
+                  <span>{centro.direccion}, {centro.ciudad || 'Posadas'}</span>
+                </div>
+              </div>
+
+              {centro.telefono && (
+                <div className="detail-row">
+                  <span className="detail-row-icon" aria-hidden="true">📞</span>
+                  <div className="detail-row-text">
+                    <strong>Teléfono de guardia:</strong>
+                    <a href={`tel:${centro.telefono}`} className="profile-phone-link">
+                      {centro.telefono}
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Botón de cómo llegar con GPS */}
+            <a
+              href={urlGoogleMaps}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn--maps-direct"
+              title="Abrir indicaciones en Google Maps"
+            >
+              <span>🧭 Cómo llegar (Abrir GPS)</span>
+            </a>
+          </article>
+
+          {/* ── Botones de Acción de Emergencia Inmediata ── */}
+          <section className="emergency-actions-hub" aria-label="Acciones prioritarias de guardia">
+            <button
+              id="btn-voy-en-camino"
+              type="button"
+              className="btn btn--emergency-hero"
+              onClick={() => abrirModal('aviso')}
+            >
+              <div className="emergency-btn-inner">
+                <span className="emergency-btn-icon" aria-hidden="true">🚨</span>
+                <div className="emergency-btn-copy">
+                  <strong>Voy en camino - Avisar a la guardia</strong>
+                  <small>Alerta inmediata al equipo de recepción médica</small>
+                </div>
+              </div>
+            </button>
+
+            <button
+              id="btn-solicitar-urgente"
+              type="button"
+              className="btn btn--emergency-secondary"
+              onClick={() => abrirModal('solicitud')}
+            >
+              <span>📅 Solicitar atención médica en el centro</span>
+            </button>
+
+            {centro.telefono && (
+              <a href={`tel:${centro.telefono}`} className="btn btn--call-center">
+                <span>📞 Llamar al centro médico ({centro.telefono})</span>
+              </a>
+            )}
+          </section>
+        </div>
       </main>
 
-      {/* ── Modal Bottom Sheet de Formulario de Solicitud ── */}
+      {/* ── Modal Bottom Sheet de Solicitud Rápida ── */}
       {modalAbierto && (
         <div
-          className="modal-overlay"
+          className="emergency-modal-backdrop"
           onClick={cerrarModal}
           role="dialog"
           aria-modal="true"
-          aria-labelledby="modal-solicitud-titulo"
+          aria-labelledby="modal-emergency-title"
         >
-          <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 id="modal-solicitud-titulo">
-                {modoSeleccionado === 'aviso'
-                  ? '🚨 Avisar que voy en camino'
-                  : '📅 Solicitar atención urgente'}
-              </h3>
+          <div className="emergency-modal-window" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-top-bar">
+              <div className="modal-header-text">
+                <h3 id="modal-emergency-title">
+                  {modoSeleccionado === 'aviso'
+                    ? '🚨 Avisar que voy en camino'
+                    : '📅 Solicitar atención médica'}
+                </h3>
+                <p className="modal-target-center">Destino: <strong>{centro.nombre}</strong></p>
+              </div>
               <button
                 type="button"
-                className="btn-close"
+                className="btn-modal-close"
                 onClick={cerrarModal}
                 disabled={enviando}
-                aria-label="Cerrar formulario"
+                aria-label="Cerrar ventana"
               >
                 ✕
               </button>
             </div>
 
-            <p style={{ fontSize: '0.85rem', color: '#6c757d' }}>
-              Destino: <strong>{centro.nombre}</strong>
-            </p>
-
             {errorEnvio && (
-              <div className="centros-error" role="alert">
+              <div className="modal-error-alert" role="alert">
                 <span>⚠️ {errorEnvio}</span>
               </div>
             )}
 
             {errorValidacion && (
-              <div className="centros-error" role="alert">
+              <div className="modal-error-alert" role="alert">
                 <span>⚠️ {errorValidacion}</span>
               </div>
             )}
 
-            <form onSubmit={handleEnviarSolicitud} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {/* Si es invitado, campo de nombre requerido para seguimiento */}
+            <form onSubmit={handleEnviarSolicitud} className="modal-form-body">
+              {/* Selector de Síntomas Rápidos (1 toque) */}
+              <div className="form-field-group">
+                <label className="form-field-label">
+                  Motivo de la urgencia (seleccioná o escribí):
+                </label>
+                <div className="quick-symptoms-chips" role="group" aria-label="Síntomas comunes">
+                  {SINTOMAS_RAPIDOS.map((sintoma) => (
+                    <button
+                      key={sintoma}
+                      type="button"
+                      className={`symptom-chip ${motivo.includes(sintoma) ? 'symptom-chip--active' : ''}`}
+                      onClick={() => seleccionarSintoma(sintoma)}
+                    >
+                      + {sintoma}
+                    </button>
+                  ))}
+                </div>
+
+                <textarea
+                  id="input-motivo-consulta"
+                  className="form-textarea-custom"
+                  placeholder="Detalle breve del cuadro o síntomas..."
+                  maxLength={200}
+                  value={motivo}
+                  onChange={(e) => setMotivo(e.target.value)}
+                  disabled={enviando}
+                />
+                <span className="char-count-text">
+                  {motivo.length} / 200 caracteres
+                </span>
+              </div>
+
+              {/* Nombre si es invitado */}
               {esInvitado && (
-                <div className="form-grupo">
-                  <label htmlFor="input-nombre-invitado" className="form-label">
-                    Tu nombre <span style={{ color: '#e63946' }}>*</span>
+                <div className="form-field-group">
+                  <label htmlFor="input-nombre-invitado" className="form-field-label">
+                    Tu nombre y apellido <span style={{ color: '#e63946' }}>*</span>
                   </label>
                   <input
                     id="input-nombre-invitado"
                     type="text"
-                    className="form-input"
-                    placeholder="Ej. Juan Pérez"
+                    className="form-input-custom"
+                    placeholder="Ej. Juan Gómez"
                     value={nombreInvitado}
                     onChange={(e) => setNombreInvitado(e.target.value)}
                     disabled={enviando}
-                    autoFocus
                     required
                   />
-                  <span style={{ fontSize: '0.75rem', color: '#868e96' }}>
-                    Necesario para identificarte en el centro de salud.
+                  <span className="form-field-helper">
+                    Necesario para identificarte al ingresar por la guardia.
                   </span>
                 </div>
               )}
 
-              <div className="form-grupo">
-                <label htmlFor="input-telefono-contacto" className="form-label">
+              {/* Teléfono opcional */}
+              <div className="form-field-group">
+                <label htmlFor="input-telefono-contacto" className="form-field-label">
                   Teléfono de contacto (opcional)
                 </label>
                 <input
                   id="input-telefono-contacto"
                   type="tel"
-                  className="form-input"
+                  className="form-input-custom"
                   placeholder="Ej. 376 412-3456"
                   value={telefonoContacto}
                   onChange={(e) => setTelefonoContacto(e.target.value)}
@@ -324,28 +422,11 @@ export default function DetalleCentro() {
                 />
               </div>
 
-              <div className="form-grupo">
-                <label htmlFor="input-motivo-consulta" className="form-label">
-                  Motivo breve (opcional)
-                </label>
-                <textarea
-                  id="input-motivo-consulta"
-                  className="form-textarea"
-                  placeholder="Ej. Caída de moto con dolor agudo en el brazo derecho..."
-                  maxLength={200}
-                  value={motivo}
-                  onChange={(e) => setMotivo(e.target.value)}
-                  disabled={enviando}
-                />
-                <span className="char-counter">
-                  {motivo.length} / 200 caracteres
-                </span>
-              </div>
-
-              <div className="modal-acciones">
+              {/* Acciones del Modal */}
+              <div className="modal-footer-actions">
                 <button
                   type="button"
-                  className="btn btn--secundario"
+                  className="btn btn--modal-cancel"
                   onClick={cerrarModal}
                   disabled={enviando}
                 >
@@ -353,18 +434,18 @@ export default function DetalleCentro() {
                 </button>
 
                 <button
-                  type="submit"
-                  className="btn btn--invitado"
-                  disabled={enviando}
                   id="btn-confirmar-solicitud"
+                  type="submit"
+                  className="btn btn--modal-confirm"
+                  disabled={enviando}
                 >
                   {enviando ? (
                     <>
-                      <div className="spinner" />
-                      <span>Enviando...</span>
+                      <span className="action-spinner" aria-hidden="true" />
+                      <span>Transmitiendo a guardia...</span>
                     </>
                   ) : (
-                    <span>Confirmar y enviar</span>
+                    <span>Confirmar y enviar aviso</span>
                   )}
                 </button>
               </div>

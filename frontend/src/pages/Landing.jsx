@@ -1,5 +1,5 @@
 /**
- * Landing.jsx — Portada principal de EmergenciaYA.
+ * Landing.jsx - Portada principal de EmergenciaYA.
  *
  * Diseñada siguiendo la skill design-taste-frontend:
  * - Lectura: Landing de salud y emergencias ciudadanas en Posadas, Misiones.

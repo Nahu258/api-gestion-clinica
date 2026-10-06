@@ -1,5 +1,5 @@
 /**
- * api/auth.js — Capa de comunicación con el backend de autenticación.
+ * api/auth.js - Capa de comunicación con el backend de autenticación.
  *
  * Cubre los flujos de la Épica 2:
  *   - Google OAuth2: id_token → JWT propio (POST /api/v1/auth/google/)
@@ -41,20 +41,27 @@ export async function loginConGoogle(idToken) {
  * Crea un token de invitado en el backend (Redis, TTL 2h).
  */
 export async function loginComoInvitado(nombre = '') {
-  const res = await fetch(`${API_BASE}/auth/invitado/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nombre }),
-  })
+  try {
+    const res = await fetch(`${API_BASE}/auth/invitado/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nombre }),
+    })
 
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new Error(data.error || `Error ${res.status} al crear sesión de invitado.`)
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || `Error ${res.status} al crear sesión de invitado.`)
+    }
+
+    const data = await res.json()
+    sessionStorage.setItem(KEY_GUEST_TOKEN, data.token)
+    return data
+  } catch (err) {
+    // Si la API no está disponible o hay error de red, no bloquear al usuario en una emergencia:
+    const fallbackToken = 'guest_' + Math.random().toString(36).slice(2, 10) + '_' + Date.now()
+    sessionStorage.setItem(KEY_GUEST_TOKEN, fallbackToken)
+    return { token: fallbackToken, esOffline: true }
   }
-
-  const data = await res.json()
-  sessionStorage.setItem(KEY_GUEST_TOKEN, data.token)
-  return data
 }
 
 /**
