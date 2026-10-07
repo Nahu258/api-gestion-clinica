@@ -19,11 +19,42 @@ class PerfilExtendido(models.Model):
     la primera vez que el usuario se loguea con Google.
     """
 
+    class Rol(models.TextChoices):
+        ADMIN = "ADMIN", "Administrador"
+        OPERADOR_CENTRO = "OPERADOR_CENTRO", "Operador de Centro"
+        MEDICO = "MEDICO", "Médico Especialista"
+        PACIENTE = "PACIENTE", "Paciente"
+
     usuario = models.OneToOneField(
         User,
         on_delete=models.CASCADE,
         related_name="perfil",
         verbose_name="Usuario",
+    )
+    rol = models.CharField(
+        max_length=20,
+        choices=Rol.choices,
+        default=Rol.PACIENTE,
+        verbose_name="Rol en la plataforma",
+        help_text="Rol de acceso para control de permisos (RBAC).",
+    )
+    centro = models.ForeignKey(
+        "centros.CentroEmergencia",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="perfiles",
+        verbose_name="Centro asignado",
+        help_text="Centro de emergencia al que está asignado el operador o médico.",
+    )
+    medico = models.ForeignKey(
+        "clinica.Medico",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="perfiles",
+        verbose_name="Médico asignado",
+        help_text="Ficha del médico si el rol es MEDICO.",
     )
     foto_url = models.URLField(
         blank=True,
@@ -40,4 +71,5 @@ class PerfilExtendido(models.Model):
         verbose_name_plural = "Perfiles extendidos"
 
     def __str__(self) -> str:
-        return f"Perfil de {self.usuario.email}"
+        return f"Perfil de {self.usuario.email} [{self.rol}]"
+

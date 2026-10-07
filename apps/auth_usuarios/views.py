@@ -100,11 +100,11 @@ class MeAPIView(APIView):
     """
     GET /api/v1/auth/me/
 
-    Devuelve el perfil del usuario autenticado.
+    Devuelve el perfil del usuario autenticado con su rol y asociaciones.
     Requiere header: Authorization: Bearer <access_token>
 
     Respuestas:
-        200  → { id, email, nombre, foto_url }
+        200  → { id, email, nombre, foto_url, rol, centro_id, medico_id }
         401  → sin token o token inválido
     """
 
@@ -112,23 +112,21 @@ class MeAPIView(APIView):
 
     def get(self, request: Request) -> Response:
         user = request.user
-        foto_url = ""
-
-        # Intentar obtener foto_url desde PerfilExtendido si existe
-        try:
-            foto_url = user.perfil.foto_url
-        except Exception:  # noqa: BLE001
-            pass
+        rol, centro_id, medico_id, foto_url = services.obtener_datos_perfil(user)
 
         datos = {
             "id": user.pk,
             "email": user.email,
             "nombre": f"{user.first_name} {user.last_name}".strip() or user.username,
             "foto_url": foto_url,
+            "rol": rol,
+            "centro_id": centro_id,
+            "medico_id": medico_id,
         }
 
         serializer = PerfilUsuarioSerializer(datos)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 
 class InvitadoLoginAPIView(APIView):

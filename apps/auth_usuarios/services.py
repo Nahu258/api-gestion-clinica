@@ -102,12 +102,39 @@ def obtener_o_crear_usuario(payload: dict) -> User:
     return user
 
 
-def _guardar_foto_si_existe(user: User, foto_url: str) -> None:
-    """Guarda foto_url en PerfilExtendido si ese modelo existe en la DB."""
+def obtener_datos_perfil(user: User) -> tuple[str, int | None, int | None, str]:
+    """Retorna (rol, centro_id, medico_id, foto_url) para el usuario."""
+    rol = "PACIENTE"
+    centro_id = None
+    medico_id = None
+    foto_url = ""
+
+    if user.is_superuser:
+        rol = "ADMIN"
+
     try:
         from apps.auth_usuarios.models import PerfilExtendido  # noqa: PLC0415
         perfil, _ = PerfilExtendido.objects.get_or_create(usuario=user)
-        if foto_url and perfil.foto_url != foto_url:
+        if not user.is_superuser:
+            rol = perfil.rol
+        centro_id = perfil.centro_id
+        medico_id = perfil.medico_id
+        foto_url = perfil.foto_url
+    except Exception:  # noqa: BLE001
+        pass
+
+    return rol, centro_id, medico_id, foto_url
+
+
+def _guardar_foto_si_existe(user: User, foto_url: str) -> None:
+    """Guarda foto_url en PerfilExtendido asegurando rol default PACIENTE."""
+    try:
+        from apps.auth_usuarios.models import PerfilExtendido  # noqa: PLC0415
+        perfil, created = PerfilExtendido.objects.get_or_create(
+            usuario=user,
+            defaults={"rol": PerfilExtendido.Rol.PACIENTE, "foto_url": foto_url},
+        )
+        if not created and foto_url and perfil.foto_url != foto_url:
             perfil.foto_url = foto_url
             perfil.save(update_fields=["foto_url"])
     except Exception:  # noqa: BLE001
@@ -117,17 +144,22 @@ def _guardar_foto_si_existe(user: User, foto_url: str) -> None:
 def generar_jwt_para_usuario(user: User) -> dict:
     """
     Genera un par de tokens JWT (access + refresh) para el usuario dado.
-
-    Retorna:
-        {
-            "access_token": str,
-            "refresh_token": str,
-            "token_type": "Bearer",
-        }
+    Incluye rol, centro_id y medico_id en los claims del access_token.
     """
+    rol, centro_id, medico_id, _ = obtener_datos_perfil(user)
+
     refresh = RefreshToken.for_user(user)
+    refresh["rol"] = rol
+    refresh["centro_id"] = centro_id
+    refresh["medico_id"] = medico_id
+
+    access = refresh.access_token
+    access["rol"] = rol
+    access["centro_id"] = centro_id
+    access["medico_id"] = medico_id
+
     return {
-        "access_token": str(refresh.access_token),
+        "access_token": str(access),
         "refresh_token": str(refresh),
         "token_type": "Bearer",
     }
@@ -142,6 +174,7 @@ def autenticar_con_google(id_token: str) -> dict:
     payload = verificar_id_token_google(id_token)
     user = obtener_o_crear_usuario(payload)
     tokens = generar_jwt_para_usuario(user)
+    rol, centro_id, medico_id, foto_url = obtener_datos_perfil(user)
 
     return {
         **tokens,
@@ -149,6 +182,10 @@ def autenticar_con_google(id_token: str) -> dict:
             "id": user.pk,
             "email": user.email,
             "nombre": f"{user.first_name} {user.last_name}".strip(),
-            "foto_url": payload.get("picture", ""),
+            "foto_url": foto_url or payload.get("picture", ""),
+            "rol": rol,
+            "centro_id": centro_id,
+            "medico_id": medico_id,
         },
     }
+

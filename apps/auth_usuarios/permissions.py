@@ -59,3 +59,120 @@ class IsGuestOrAuthenticated(BasePermission):
         except (InvalidToken, TokenError):
             pass
         return False
+
+
+def obtener_rol_usuario(user) -> str:
+    """Retorna el rol del usuario autenticado."""
+    if not user or not user.is_authenticated:
+        return ""
+    if user.is_superuser or user.is_staff:
+        return "ADMIN"
+    try:
+        if hasattr(user, "perfil") and user.perfil.rol:
+            return user.perfil.rol
+    except Exception:
+        pass
+    return "PACIENTE"
+
+
+class IsAdminUserRole(BasePermission):
+    """
+    Permite el acceso únicamente a usuarios con rol ADMIN (o superuser/staff).
+    """
+
+    message = "Se requiere rol de Administrador para realizar esta acción."
+
+    def has_permission(self, request, view) -> bool:
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and (
+                obtener_rol_usuario(request.user) == "ADMIN"
+                or request.user.is_superuser
+                or request.user.is_staff
+            )
+        )
+
+
+class IsOperadorCentro(BasePermission):
+    """
+    Permite el acceso a Operadores de Centro o Administradores.
+    """
+
+    message = "Se requiere rol de Operador de Centro o Administrador."
+
+    def has_permission(self, request, view) -> bool:
+        rol = obtener_rol_usuario(request.user)
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and (rol in ["OPERADOR_CENTRO", "ADMIN"] or request.user.is_superuser)
+        )
+
+
+class IsMedicoEspecialista(BasePermission):
+    """
+    Permite el acceso a Médicos Especialistas o Administradores.
+    """
+
+    message = "Se requiere rol de Médico Especialista o Administrador."
+
+    def has_permission(self, request, view) -> bool:
+        rol = obtener_rol_usuario(request.user)
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and (rol in ["MEDICO", "ADMIN"] or request.user.is_superuser)
+        )
+
+
+class IsPacienteRegistrado(BasePermission):
+    """
+    Permite el acceso a usuarios registrados con rol PACIENTE.
+    Rechaza invitados anónimos y roles no asignados.
+    """
+
+    message = "Se requiere estar registrado con una cuenta de paciente."
+
+    def has_permission(self, request, view) -> bool:
+        rol = obtener_rol_usuario(request.user)
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and (rol in ["PACIENTE", "ADMIN"] or request.user.is_superuser)
+        )
+
+
+class IsStaffOrOwner(BasePermission):
+    """
+    Permite el acceso al propietario del recurso o a personal médico/operativo/admin.
+    """
+
+    message = "No posee permisos para acceder o modificar este recurso."
+
+    def has_permission(self, request, view) -> bool:
+        return bool(request.user and request.user.is_authenticated)
+
+    def has_object_permission(self, request, view, obj) -> bool:
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        rol = obtener_rol_usuario(request.user)
+        if rol in ["ADMIN", "OPERADOR_CENTRO", "MEDICO"] or request.user.is_superuser:
+            return True
+
+        if hasattr(obj, "usuario") and obj.usuario == request.user:
+            return True
+        if (
+            hasattr(obj, "paciente")
+            and hasattr(obj.paciente, "usuario")
+            and obj.paciente.usuario == request.user
+        ):
+            return True
+        if hasattr(obj, "user") and obj.user == request.user:
+            return True
+        if obj == request.user:
+            return True
+
+        return False
+

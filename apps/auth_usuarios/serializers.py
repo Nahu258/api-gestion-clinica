@@ -27,7 +27,11 @@ class PerfilUsuarioSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     email = serializers.EmailField()
     nombre = serializers.CharField()
-    foto_url = serializers.URLField(allow_blank=True)
+    foto_url = serializers.URLField(allow_blank=True, default="")
+    rol = serializers.CharField(default="PACIENTE")
+    centro_id = serializers.IntegerField(allow_null=True, required=False, default=None)
+    medico_id = serializers.IntegerField(allow_null=True, required=False, default=None)
+
 
 
 class InvitadoSerializer(serializers.Serializer):
