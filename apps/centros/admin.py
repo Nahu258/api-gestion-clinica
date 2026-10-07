@@ -7,7 +7,7 @@ filtrando por nombre, tipo y ciudad, tal como pide la issue #8.
 
 from django.contrib import admin
 
-from .models import CentroEmergencia
+from .models import AsignacionMedico, CentroEmergencia, CentroEspecialidad, Especialidad
 
 
 @admin.register(CentroEmergencia)
@@ -33,3 +33,25 @@ class CentroEmergenciaAdmin(admin.ModelAdmin):
             "classes": ("collapse",),
         }),
     )
+
+
+@admin.register(Especialidad)
+class EspecialidadAdmin(admin.ModelAdmin):
+    list_display = ("nombre", "codigo", "icono")
+    search_fields = ("nombre", "codigo")
+    prepopulated_fields = {"codigo": ("nombre",)}
+
+
+@admin.register(CentroEspecialidad)
+class CentroEspecialidadAdmin(admin.ModelAdmin):
+    list_display = ("centro", "especialidad", "activo", "creado_en")
+    list_filter = ("centro", "especialidad", "activo")
+    search_fields = ("centro__nombre", "especialidad__nombre")
+
+
+@admin.register(AsignacionMedico)
+class AsignacionMedicoAdmin(admin.ModelAdmin):
+    list_display = ("medico", "centro", "especialidad", "activo", "creado_en")
+    list_filter = ("centro", "especialidad", "activo")
+    search_fields = ("medico__nombre", "centro__nombre", "especialidad__nombre")
+

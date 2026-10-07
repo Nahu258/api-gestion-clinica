@@ -6,7 +6,12 @@ Usa re_path con `/?` al final igual que el módulo turnos.
 
 from django.urls import re_path
 
-from apps.centros.views import CentroDetalleAPIView, CentrosCercanosAPIView
+from apps.centros.views import (
+    CentroDetalleAPIView,
+    CentroEspecialidadDoctoresAPIView,
+    CentroEspecialidadesAPIView,
+    CentrosCercanosAPIView,
+)
 
 app_name = "centros"
 
@@ -21,4 +26,15 @@ urlpatterns = [
         CentroDetalleAPIView.as_view(),
         name="centro-detalle",
     ),
+    re_path(
+        r"^centros/(?P<centro_id>\d+)/especialidades/?$",
+        CentroEspecialidadesAPIView.as_view(),
+        name="centro-especialidades",
+    ),
+    re_path(
+        r"^centros/(?P<centro_id>\d+)/especialidades/(?P<especialidad_id>\d+)/doctores/?$",
+        CentroEspecialidadDoctoresAPIView.as_view(),
+        name="centro-especialidad-doctores",
+    ),
 ]
+

@@ -10,6 +10,9 @@ class Medico(models.Model):
         OTRA = "otra", "Otra"
 
     nombre = models.CharField(max_length=120, verbose_name="Nombre y apellido del medico")
+    matricula = models.CharField(
+        max_length=50, blank=True, default="", verbose_name="Matrícula médica"
+    )
     especialidad = models.CharField(
         max_length=20,
         choices=Especialidad.choices,

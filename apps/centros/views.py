@@ -111,3 +111,198 @@ class CentroDetalleAPIView(APIView):
             CentroEmergenciaSerializer(centro).data,
             status=status.HTTP_200_OK,
         )
+
+
+class CentroEspecialidadesAPIView(APIView):
+    """
+    GET  /api/v1/centros/{centro_id}/especialidades/
+         Retorna las especialidades ofrecidas por el centro.
+
+    POST /api/v1/centros/{centro_id}/especialidades/
+         Asocia o crea una especialidad para el centro (solo ADMIN).
+    """
+
+    def get_permissions(self):
+        from core.permissions import IsAdminUserRole
+
+        if self.request.method == "POST":
+            return [IsAdminUserRole()]
+        return []
+
+    def get(self, request: Request, centro_id: int) -> Response:
+        from apps.centros.models import Especialidad
+        from apps.centros.serializers import EspecialidadSerializer
+
+        try:
+            centro = CentroEmergencia.objects.get(pk=centro_id, activo=True)
+        except CentroEmergencia.DoesNotExist:
+            return Response(
+                {"error": f"Centro de emergencia #{centro_id} no encontrado o inactivo."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        especialidades = Especialidad.objects.filter(
+            centros_adheridos__centro=centro,
+            centros_adheridos__activo=True,
+        ).distinct()
+        data = EspecialidadSerializer(especialidades, many=True).data
+        return Response(data, status=status.HTTP_200_OK)
+
+    def post(self, request: Request, centro_id: int) -> Response:
+        from apps.centros.models import Especialidad, CentroEspecialidad
+        from apps.centros.serializers import (
+            CrearEspecialidadCentroSerializer,
+            EspecialidadSerializer,
+        )
+
+        try:
+            centro = CentroEmergencia.objects.get(pk=centro_id, activo=True)
+        except CentroEmergencia.DoesNotExist:
+            return Response(
+                {"error": f"Centro de emergencia #{centro_id} no encontrado o inactivo."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CrearEspecialidadCentroSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        datos = serializer.validated_data
+
+        if datos.get("especialidad_id"):
+            try:
+                especialidad = Especialidad.objects.get(pk=datos["especialidad_id"])
+            except Especialidad.DoesNotExist:
+                return Response(
+                    {"error": f"Especialidad #{datos['especialidad_id']} no encontrada."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        else:
+            especialidad, _ = Especialidad.objects.get_or_create(
+                codigo=datos["codigo"],
+                defaults={
+                    "nombre": datos["nombre"],
+                    "descripcion": datos.get("descripcion", ""),
+                    "icono": datos.get("icono", ""),
+                },
+            )
+
+        centro_esp, _ = CentroEspecialidad.objects.get_or_create(
+            centro=centro, especialidad=especialidad
+        )
+        centro_esp.activo = True
+        centro_esp.save(update_fields=["activo"])
+
+        return Response(
+            EspecialidadSerializer(especialidad).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class CentroEspecialidadDoctoresAPIView(APIView):
+    """
+    GET  /api/v1/centros/{centro_id}/especialidades/{especialidad_id}/doctores/
+         Retorna los doctores asignados a ese centro y especialidad.
+
+    POST /api/v1/centros/{centro_id}/especialidades/{especialidad_id}/doctores/
+         Asigna o registra un doctor en el centro y especialidad (solo ADMIN).
+    """
+
+    def get_permissions(self):
+        from core.permissions import IsAdminUserRole
+
+        if self.request.method == "POST":
+            return [IsAdminUserRole()]
+        return []
+
+    def get(self, request: Request, centro_id: int, especialidad_id: int) -> Response:
+        from apps.centros.models import Especialidad, AsignacionMedico
+        from apps.centros.serializers import DoctorEspecialidadSerializer
+
+        try:
+            centro = CentroEmergencia.objects.get(pk=centro_id, activo=True)
+        except CentroEmergencia.DoesNotExist:
+            return Response(
+                {"error": f"Centro de emergencia #{centro_id} no encontrado o inactivo."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            especialidad = Especialidad.objects.get(pk=especialidad_id)
+        except Especialidad.DoesNotExist:
+            return Response(
+                {"error": f"Especialidad #{especialidad_id} no encontrada."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        asignaciones = AsignacionMedico.objects.filter(
+            centro=centro,
+            especialidad=especialidad,
+            activo=True,
+        ).select_related("medico", "especialidad")
+
+        data = DoctorEspecialidadSerializer(asignaciones, many=True).data
+        return Response(data, status=status.HTTP_200_OK)
+
+    def post(self, request: Request, centro_id: int, especialidad_id: int) -> Response:
+        from apps.centros.models import Especialidad, CentroEspecialidad, AsignacionMedico
+        from apps.centros.serializers import (
+            AsignarDoctorSerializer,
+            DoctorEspecialidadSerializer,
+        )
+
+        try:
+            centro = CentroEmergencia.objects.get(pk=centro_id, activo=True)
+        except CentroEmergencia.DoesNotExist:
+            return Response(
+                {"error": f"Centro de emergencia #{centro_id} no encontrado o inactivo."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            especialidad = Especialidad.objects.get(pk=especialidad_id)
+        except Especialidad.DoesNotExist:
+            return Response(
+                {"error": f"Especialidad #{especialidad_id} no encontrada."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Vincular especialidad al centro si aún no estaba
+        CentroEspecialidad.objects.get_or_create(
+            centro=centro, especialidad=especialidad, defaults={"activo": True}
+        )
+
+        serializer = AsignarDoctorSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        datos = serializer.validated_data
+
+        if datos.get("medico_id"):
+            try:
+                from apps.clinica.models import Medico
+
+                medico = Medico.objects.get(pk=datos["medico_id"])
+            except Exception:
+                return Response(
+                    {"error": f"Médico #{datos['medico_id']} no encontrado."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        else:
+            from apps.clinica.models import Medico
+
+            medico = Medico.objects.create(
+                nombre=datos["nombre"],
+                matricula=datos.get("matricula", ""),
+                especialidad=Medico.Especialidad.CLINICA_MEDICA,
+            )
+
+        asignacion, _ = AsignacionMedico.objects.get_or_create(
+            medico=medico,
+            centro=centro,
+            especialidad=especialidad,
+        )
+        asignacion.activo = True
+        asignacion.save(update_fields=["activo"])
+
+        return Response(
+            DoctorEspecialidadSerializer(asignacion).data,
+            status=status.HTTP_201_CREATED,
+        )
+
