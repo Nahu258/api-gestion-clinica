@@ -33,6 +33,8 @@ class SolicitudAtencion(models.Model):
         PENDIENTE  = "pendiente",  "Pendiente"
         ACEPTADO   = "aceptado",   "Aceptado por el centro"
         EN_CAMINO  = "en_camino",  "Paciente en camino"
+        DERIVADO   = "derivado",   "Derivado a especialista"
+        EN_ATENCION = "en_atencion", "En atención médica"
         ATENDIDO   = "atendido",   "Atendido"
         CANCELADO  = "cancelado",  "Cancelado"
 
@@ -71,11 +73,70 @@ class SolicitudAtencion(models.Model):
         verbose_name="Motivo breve",
     )
     estado = models.CharField(
-        max_length=10,
+        max_length=15,
         choices=Estado.choices,
         default=Estado.PENDIENTE,
         verbose_name="Estado",
     )
+
+    # ── Derivación y Triage (Épica 4) ───────────────────────────────────────
+    especialidad_asignada = models.ForeignKey(
+        "centros.Especialidad",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="solicitudes_derivadas",
+        verbose_name="Especialidad asignada",
+    )
+    medico_asignado = models.ForeignKey(
+        "clinica.Medico",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="solicitudes_derivadas",
+        verbose_name="Médico asignado",
+    )
+    derivado_por = models.ForeignKey(
+        "auth.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="solicitudes_derivadas_operador",
+        verbose_name="Operador que derivó",
+    )
+    fecha_derivacion = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de derivación",
+    )
+    prioridad = models.CharField(
+        max_length=20,
+        default="media",
+        verbose_name="Prioridad de triage",
+    )
+    observaciones_triage = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Observaciones de triage",
+    )
+
+    # ── Ficha Médica y Cierre (Épica 4) ─────────────────────────────────────
+    diagnostico = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Diagnóstico médico",
+    )
+    indicaciones = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Indicaciones médicas",
+    )
+    atendido_en = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha y hora de atención",
+    )
+
 
     # ── Ubicación del usuario ───────────────────────────────────────────────
     lat_usuario = models.DecimalField(

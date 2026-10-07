@@ -13,19 +13,54 @@ from apps.centros.models import CentroEmergencia
 from apps.atencion.models import SolicitudAtencion
 from core.exceptions import DatosInvalidos, RecursoNoEncontrado, ReglaDeNegocioViolada
 
+import time
+import uuid
+from contextlib import contextmanager
+from django.utils import timezone
+from core.redis_client import redis_o_503
+from core.exceptions import ServicioNoDisponible
+
 logger = logging.getLogger(__name__)
 
 # Estados terminales: una vez en estos estados, la solicitud no se puede modificar
 ESTADOS_TERMINALES = {SolicitudAtencion.Estado.ATENDIDO, SolicitudAtencion.Estado.CANCELADO}
 
-# Transiciones válidas de estado
+# Transiciones válidas de estado (Épica 4: DERIVADO y EN_ATENCION)
 TRANSICIONES_VALIDAS: dict[str, set[str]] = {
-    SolicitudAtencion.Estado.PENDIENTE:  {SolicitudAtencion.Estado.ACEPTADO,  SolicitudAtencion.Estado.CANCELADO},
-    SolicitudAtencion.Estado.ACEPTADO:   {SolicitudAtencion.Estado.EN_CAMINO, SolicitudAtencion.Estado.CANCELADO},
-    SolicitudAtencion.Estado.EN_CAMINO:  {SolicitudAtencion.Estado.ATENDIDO,  SolicitudAtencion.Estado.CANCELADO},
+    SolicitudAtencion.Estado.PENDIENTE:  {SolicitudAtencion.Estado.ACEPTADO, SolicitudAtencion.Estado.DERIVADO, SolicitudAtencion.Estado.CANCELADO},
+    SolicitudAtencion.Estado.ACEPTADO:   {SolicitudAtencion.Estado.DERIVADO, SolicitudAtencion.Estado.EN_CAMINO, SolicitudAtencion.Estado.CANCELADO},
+    SolicitudAtencion.Estado.EN_CAMINO:  {SolicitudAtencion.Estado.DERIVADO, SolicitudAtencion.Estado.ATENDIDO, SolicitudAtencion.Estado.CANCELADO},
+    SolicitudAtencion.Estado.DERIVADO:   {SolicitudAtencion.Estado.EN_ATENCION, SolicitudAtencion.Estado.CANCELADO},
+    SolicitudAtencion.Estado.EN_ATENCION:{SolicitudAtencion.Estado.ATENDIDO, SolicitudAtencion.Estado.CANCELADO},
     SolicitudAtencion.Estado.ATENDIDO:   set(),
     SolicitudAtencion.Estado.CANCELADO:  set(),
 }
+
+
+@contextmanager
+def lock_derivacion_medico(medico_id: int):
+    """
+    Lock en Redis para serializar derivaciones hacia el mismo especialista
+    y evitar sobreasignación o carreras concurrentes.
+    """
+    r = redis_o_503()
+    clave = f"lock:derivacion:medico:{medico_id}"
+    token = uuid.uuid4().hex
+    limite = time.monotonic() + 5.0
+
+    while not r.set(clave, token, nx=True, ex=10):
+        if time.monotonic() > limite:
+            raise ServicioNoDisponible(
+                "El médico seleccionado se encuentra ocupado procesando otra derivación. Reintente en instantes."
+            )
+        time.sleep(0.05)
+
+    try:
+        yield
+    finally:
+        if r.get(clave) == token:
+            r.delete(clave)
+
 
 
 def crear_solicitud(datos: dict) -> SolicitudAtencion:
@@ -137,3 +172,67 @@ def _obtener_centro(centro_id: int) -> CentroEmergencia:
         raise DatosInvalidos(
             f"No existe un centro activo con id {centro_id}."
         )
+
+
+def derivar_solicitud(
+    solicitud_id: int,
+    especialidad_id: int,
+    medico_id: int,
+    usuario_operador=None,
+    prioridad: str = "alta",
+    observaciones: str = "",
+) -> SolicitudAtencion:
+    """
+    Deriva una SolicitudAtencion a un médico y especialidad seleccionados.
+    Protegido por lock en Redis para concurrencia.
+    Publica evento solicitud.derivada en RabbitMQ.
+    """
+    from apps.centros.models import Especialidad
+    from apps.clinica.models import Medico
+    from apps.clinica.disponibilidad import get_disponibilidad_medico
+
+    try:
+        especialidad = Especialidad.objects.get(pk=especialidad_id)
+    except Especialidad.DoesNotExist:
+        raise DatosInvalidos(f"Especialidad #{especialidad_id} no existe.")
+
+    try:
+        medico = Medico.objects.get(pk=medico_id)
+    except Medico.DoesNotExist:
+        raise DatosInvalidos(f"Médico #{medico_id} no existe.")
+
+    with lock_derivacion_medico(medico.id):
+        estado_medico = get_disponibilidad_medico(medico.id)
+        if estado_medico == "FUERA_DE_GUARDIA":
+            raise ReglaDeNegocioViolada(
+                f"El médico {medico.nombre} se encuentra fuera de disponibilidad/guardia."
+            )
+
+        solicitud = obtener_solicitud(solicitud_id)
+
+        estados_permitidos_derivacion = {
+            SolicitudAtencion.Estado.PENDIENTE,
+            SolicitudAtencion.Estado.ACEPTADO,
+            SolicitudAtencion.Estado.EN_CAMINO,
+        }
+        if solicitud.estado not in estados_permitidos_derivacion:
+            raise ReglaDeNegocioViolada(
+                f"No se puede derivar una solicitud en estado '{solicitud.get_estado_display()}'."
+            )
+
+        solicitud.especialidad_asignada = especialidad
+        solicitud.medico_asignado = medico
+        if usuario_operador and getattr(usuario_operador, "is_authenticated", False):
+            solicitud.derivado_por = usuario_operador
+        solicitud.fecha_derivacion = timezone.now()
+        solicitud.prioridad = prioridad
+        solicitud.observaciones_triage = observaciones
+        solicitud.estado = SolicitudAtencion.Estado.DERIVADO
+        solicitud.save()
+
+        if getattr(settings, "EVENTOS_HABILITADOS", True):
+            from apps.atencion.eventos import publicar_solicitud_derivada
+            publicar_solicitud_derivada(solicitud)
+
+        return solicitud
+

@@ -41,3 +41,38 @@ def publicar_solicitud_creada(solicitud) -> str | None:
             "lon_usuario":    float(solicitud.lon_usuario) if solicitud.lon_usuario else None,
         },
     )
+
+
+def publicar_solicitud_derivada(solicitud) -> str | None:
+    """
+    Publica el evento `solicitud.derivada` en RabbitMQ.
+    """
+    return publicar_evento(
+        tipo="solicitud.derivada",
+        payload={
+            "solicitud_id":    solicitud.pk,
+            "centro_id":       solicitud.centro_id,
+            "medico_id":       solicitud.medico_asignado_id,
+            "especialidad_id": solicitud.especialidad_asignada_id,
+            "paciente_id":     solicitud.usuario_id,
+            "es_invitado":     solicitud.es_invitado,
+        },
+    )
+
+
+def publicar_solicitud_atendida(solicitud) -> str | None:
+    """
+    Publica el evento `solicitud.atendida` en RabbitMQ.
+    """
+    return publicar_evento(
+        tipo="solicitud.atendida",
+        payload={
+            "solicitud_id":    solicitud.pk,
+            "centro_id":       solicitud.centro_id,
+            "medico_id":       solicitud.medico_asignado_id,
+            "paciente_id":     solicitud.usuario_id,
+            "es_invitado":     solicitud.es_invitado,
+            "atendido_en":     solicitud.atendido_en.isoformat() if solicitud.atendido_en else None,
+        },
+    )
+

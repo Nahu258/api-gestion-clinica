@@ -12,7 +12,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.atencion import services
-from apps.atencion.serializers import SolicitudAtencionSerializer, SolicitudEstadoSerializer
+from apps.atencion.serializers import (
+    DerivarSolicitudSerializer,
+    SolicitudAtencionSerializer,
+    SolicitudEstadoSerializer,
+)
+from core.permissions import IsOperadorCentro
 
 
 class SolicitudListaAPIView(APIView):
@@ -65,3 +70,34 @@ class SolicitudDetalleAPIView(APIView):
             SolicitudAtencionSerializer(solicitud).data,
             status=status.HTTP_200_OK,
         )
+
+
+class DerivarSolicitudAPIView(APIView):
+    """
+    POST /api/v1/atencion/solicitudes/{id}/derivar/
+
+    Deriva la solicitud de atención a un especialista y médico asignado.
+    Permisos: Solo OPERADOR_CENTRO o ADMIN.
+    """
+
+    permission_classes = [IsOperadorCentro]
+
+    def post(self, request: Request, solicitud_id: int) -> Response:
+        serializer = DerivarSolicitudSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        datos = serializer.validated_data
+
+        solicitud = services.derivar_solicitud(
+            solicitud_id=solicitud_id,
+            especialidad_id=datos["especialidad_id"],
+            medico_id=datos["medico_id"],
+            usuario_operador=request.user,
+            prioridad=datos.get("prioridad", "alta"),
+            observaciones=datos.get("observaciones", ""),
+        )
+
+        return Response(
+            SolicitudAtencionSerializer(solicitud).data,
+            status=status.HTTP_200_OK,
+        )
+

@@ -48,6 +48,9 @@ class SolicitudAtencionSerializer(serializers.ModelSerializer):
         write_only=False,
     )
 
+    especialidad_nombre = serializers.CharField(source="especialidad_asignada.nombre", read_only=True)
+    medico_nombre       = serializers.CharField(source="medico_asignado.nombre",       read_only=True)
+
     class Meta:
         model  = SolicitudAtencion
         fields = [
@@ -64,6 +67,13 @@ class SolicitudAtencionSerializer(serializers.ModelSerializer):
             "usuario_id",
             "nombre_invitado",
             "telefono_invitado",
+            "especialidad_asignada",
+            "especialidad_nombre",
+            "medico_asignado",
+            "medico_nombre",
+            "fecha_derivacion",
+            "prioridad",
+            "observaciones_triage",
             "lat_usuario",
             "lon_usuario",
             "creado_en",
@@ -74,9 +84,9 @@ class SolicitudAtencionSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         """Sobreescribimos para que centro_id muestre el ID en la salida."""
         rep = super().to_representation(instance)
-        # PrimaryKeyRelatedField con source='centro' muestra el objeto;
-        # lo reemplazamos con el ID entero.
         rep["centro_id"] = instance.centro_id
+        rep["especialidad_id"] = instance.especialidad_asignada_id
+        rep["medico_id"] = instance.medico_asignado_id
         return rep
 
 
@@ -87,3 +97,15 @@ class SolicitudEstadoSerializer(serializers.Serializer):
     """
 
     estado = serializers.ChoiceField(choices=SolicitudAtencion.Estado.choices)
+
+
+class DerivarSolicitudSerializer(serializers.Serializer):
+    """
+    Serializer para POST /api/v1/atencion/solicitudes/{id}/derivar/
+    """
+
+    especialidad_id = serializers.IntegerField()
+    medico_id = serializers.IntegerField()
+    prioridad = serializers.CharField(required=False, default="alta")
+    observaciones = serializers.CharField(required=False, allow_blank=True, default="")
+
