@@ -10,6 +10,7 @@ from apps.centros.views import (
     CentroDetalleAPIView,
     CentroEspecialidadDoctoresAPIView,
     CentroEspecialidadesAPIView,
+    CentroEspecialistasDisponiblesAPIView,
     CentrosCercanosAPIView,
 )
 
@@ -36,5 +37,11 @@ urlpatterns = [
         CentroEspecialidadDoctoresAPIView.as_view(),
         name="centro-especialidad-doctores",
     ),
+    re_path(
+        r"^centros/(?P<centro_id>\d+)/especialistas-disponibles/?$",
+        CentroEspecialistasDisponiblesAPIView.as_view(),
+        name="centro-especialistas-disponibles",
+    ),
 ]
+
 

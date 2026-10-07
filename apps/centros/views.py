@@ -306,3 +306,40 @@ class CentroEspecialidadDoctoresAPIView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
+
+class CentroEspecialistasDisponiblesAPIView(APIView):
+    """
+    GET /api/v1/centros/{centro_id}/especialistas-disponibles/?especialidad_id=X
+    Lista los médicos asignados al centro ordenados por disponibilidad en tiempo real (prioridad DISPONIBLE).
+    """
+
+    def get(self, request: Request, centro_id: int) -> Response:
+        from apps.centros.models import CentroEmergencia
+        from apps.clinica.disponibilidad import listar_especialistas_disponibles_centro
+
+        try:
+            centro = CentroEmergencia.objects.get(pk=centro_id, activo=True)
+        except CentroEmergencia.DoesNotExist:
+            return Response(
+                {"error": f"Centro de emergencia #{centro_id} no encontrado o inactivo."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        esp_raw = request.query_params.get("especialidad_id")
+        especialidad_id = int(esp_raw) if esp_raw and esp_raw.isdigit() else None
+
+        resultados = listar_especialistas_disponibles_centro(
+            centro_id=centro.id, especialidad_id=especialidad_id
+        )
+
+        return Response(
+            {
+                "centro_id": centro.id,
+                "centro_nombre": centro.nombre,
+                "cantidad": len(resultados),
+                "resultados": resultados,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+

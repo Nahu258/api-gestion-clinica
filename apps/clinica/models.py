@@ -41,3 +41,54 @@ class Paciente(models.Model):
 
     def __str__(self):
         return f"{self.nombre} - DNI {self.dni}"
+
+
+class DisponibilidadMedico(models.Model):
+    """
+    Horario de guardia programada del médico en un centro de emergencia.
+    """
+
+    class DiaSemana(models.IntegerChoices):
+        LUNES = 0, "Lunes"
+        MARTES = 1, "Martes"
+        MIERCOLES = 2, "Miércoles"
+        JUEVES = 3, "Jueves"
+        VIERNES = 4, "Viernes"
+        SABADO = 5, "Sábado"
+        DOMINGO = 6, "Domingo"
+
+    medico = models.ForeignKey(
+        Medico,
+        on_delete=models.CASCADE,
+        related_name="guardias",
+        verbose_name="Médico",
+    )
+    centro = models.ForeignKey(
+        "centros.CentroEmergencia",
+        on_delete=models.CASCADE,
+        related_name="guardias_programadas",
+        verbose_name="Centro de emergencia",
+    )
+    dia_semana = models.SmallIntegerField(
+        choices=DiaSemana.choices,
+        verbose_name="Día de la semana (0=Lunes, 6=Domingo)",
+        help_text="0=Lunes, 1=Martes, ..., 6=Domingo",
+    )
+    hora_inicio = models.TimeField(verbose_name="Hora de inicio de guardia")
+    hora_fin = models.TimeField(verbose_name="Hora de fin de guardia")
+    en_guardia_activa = models.BooleanField(
+        default=True,
+        verbose_name="En guardia activa programada",
+    )
+
+    class Meta:
+        db_table = "disponibilidad_medicos"
+        verbose_name = "Disponibilidad / Guardia de médico"
+        verbose_name_plural = "Disponibilidades / Guardias de médicos"
+        ordering = ["dia_semana", "hora_inicio"]
+
+    def __str__(self):
+        dias = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+        dia_txt = dias[self.dia_semana] if 0 <= self.dia_semana < 7 else str(self.dia_semana)
+        return f"{self.medico.nombre} en {self.centro.nombre} ({dia_txt} {self.hora_inicio}-{self.hora_fin})"
+
