@@ -109,3 +109,24 @@ class DerivarSolicitudSerializer(serializers.Serializer):
     prioridad = serializers.CharField(required=False, default="alta")
     observaciones = serializers.CharField(required=False, allow_blank=True, default="")
 
+
+class CompletarAtencionSerializer(serializers.Serializer):
+    """
+    Serializer para POST /api/v1/atencion/solicitudes/{id}/completar/
+    """
+
+    diagnostico = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        min_length=3,
+        error_messages={
+            "required": "El diagnóstico médico es obligatorio.",
+            "blank": "El diagnóstico médico no puede estar vacío.",
+        },
+    )
+    indicaciones = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+    )
+

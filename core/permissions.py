@@ -12,6 +12,11 @@ from apps.auth_usuarios.permissions import (
     obtener_rol_usuario,
 )
 
+from apps.atencion.permissions import (
+    IsMedicoAsignadoOAdmin,
+    CanViewFichaClinica,
+)
+
 __all__ = [
     "IsGuestOrAuthenticated",
     "IsAdminUserRole",
@@ -20,4 +25,6 @@ __all__ = [
     "IsPacienteRegistrado",
     "IsStaffOrOwner",
     "obtener_rol_usuario",
+    "IsMedicoAsignadoOAdmin",
+    "CanViewFichaClinica",
 ]

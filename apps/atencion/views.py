@@ -12,12 +12,17 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.atencion import services
+from apps.atencion.permissions import (
+    CanViewFichaClinica,
+    IsMedicoAsignadoOAdmin,
+)
 from apps.atencion.serializers import (
+    CompletarAtencionSerializer,
     DerivarSolicitudSerializer,
     SolicitudAtencionSerializer,
     SolicitudEstadoSerializer,
 )
-from core.permissions import IsOperadorCentro
+from core.permissions import IsOperadorCentro, IsPacienteRegistrado
 
 
 class SolicitudListaAPIView(APIView):
@@ -100,4 +105,87 @@ class DerivarSolicitudAPIView(APIView):
             SolicitudAtencionSerializer(solicitud).data,
             status=status.HTTP_200_OK,
         )
+
+
+class IniciarAtencionAPIView(APIView):
+    """
+    POST /api/v1/atencion/solicitudes/{id}/iniciar-atencion/
+
+    Transiciona la solicitud a EN_ATENCION.
+    Permiso: Solo el médico asignado o ADMIN.
+    """
+
+    permission_classes = [IsMedicoAsignadoOAdmin]
+
+    def post(self, request: Request, solicitud_id: int) -> Response:
+        solicitud = services.obtener_solicitud(solicitud_id)
+        self.check_object_permissions(request, solicitud)
+
+        solicitud = services.iniciar_atencion(solicitud_id)
+        return Response(
+            SolicitudAtencionSerializer(solicitud).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class CompletarAtencionAPIView(APIView):
+    """
+    POST /api/v1/atencion/solicitudes/{id}/completar/
+
+    Cierra la atención médica pasando a ATENDIDO, guarda diagnóstico e indicaciones
+    y emite el evento en RabbitMQ.
+    Permiso: Solo el médico asignado o ADMIN.
+    """
+
+    permission_classes = [IsMedicoAsignadoOAdmin]
+
+    def post(self, request: Request, solicitud_id: int) -> Response:
+        solicitud = services.obtener_solicitud(solicitud_id)
+        self.check_object_permissions(request, solicitud)
+
+        serializer = CompletarAtencionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        solicitud = services.completar_atencion(
+            solicitud_id=solicitud_id,
+            diagnostico=serializer.validated_data["diagnostico"],
+            indicaciones=serializer.validated_data.get("indicaciones", ""),
+        )
+        return Response(
+            SolicitudAtencionSerializer(solicitud).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class FichaClinicaAPIView(APIView):
+    """
+    GET /api/v1/atencion/solicitudes/{id}/ficha-clinica/
+
+    Devuelve la información clínica del episodio y antecedentes del paciente si está registrado.
+    Permiso: Médico asignado, Operador del centro o ADMIN.
+    """
+
+    permission_classes = [CanViewFichaClinica]
+
+    def get(self, request: Request, solicitud_id: int) -> Response:
+        solicitud = services.obtener_solicitud(solicitud_id)
+        self.check_object_permissions(request, solicitud)
+
+        ficha = services.obtener_ficha_clinica(solicitud_id)
+        return Response(ficha, status=status.HTTP_200_OK)
+
+
+class PacienteHistorialAPIView(APIView):
+    """
+    GET /api/v1/pacientes/mi-historial/
+
+    Devuelve el historial clínico del paciente registrado autenticado.
+    Permiso: Rol PACIENTE o ADMIN (usuarios con cuenta propia).
+    """
+
+    permission_classes = [IsPacienteRegistrado]
+
+    def get(self, request: Request) -> Response:
+        historial = services.obtener_historial_paciente(request.user.id)
+        return Response(historial, status=status.HTTP_200_OK)
 

@@ -236,3 +236,171 @@ def derivar_solicitud(
 
         return solicitud
 
+
+def iniciar_atencion(solicitud_id: int) -> SolicitudAtencion:
+    """
+    Inicia la atención médica de una solicitud en estado DERIVADO.
+    Pasa el estado a EN_ATENCION y actualiza la disponibilidad del médico a EN_ATENCION en Redis.
+    """
+    solicitud = obtener_solicitud(solicitud_id)
+    if solicitud.estado != SolicitudAtencion.Estado.DERIVADO:
+        raise ReglaDeNegocioViolada(
+            f"No se puede iniciar atención de una solicitud en estado '{solicitud.get_estado_display()}'. Debe estar en DERIVADO."
+        )
+
+    solicitud.estado = SolicitudAtencion.Estado.EN_ATENCION
+    solicitud.save(update_fields=["estado", "actualizado_en"])
+
+    if solicitud.medico_asignado_id:
+        from apps.clinica.disponibilidad import set_disponibilidad_medico
+        set_disponibilidad_medico(solicitud.medico_asignado_id, "EN_ATENCION")
+
+    return solicitud
+
+
+def completar_atencion(
+    solicitud_id: int,
+    diagnostico: str,
+    indicaciones: str = "",
+) -> SolicitudAtencion:
+    """
+    Finaliza la atención médica:
+    - Valida que se provea diagnóstico.
+    - Pasa a estado ATENDIDO.
+    - Registra diagnostico, indicaciones y atendido_en.
+    - Restablece disponibilidad del médico a DISPONIBLE en Redis.
+    - Publica evento solicitud.atendida en RabbitMQ.
+    """
+    if not diagnostico or not diagnostico.strip():
+        raise DatosInvalidos("Debe proporcionar un diagnóstico médico válido para finalizar la atención.")
+
+    solicitud = obtener_solicitud(solicitud_id)
+    if solicitud.estado not in {SolicitudAtencion.Estado.EN_ATENCION, SolicitudAtencion.Estado.DERIVADO}:
+        raise ReglaDeNegocioViolada(
+            f"No se puede completar una solicitud en estado '{solicitud.get_estado_display()}'."
+        )
+
+    solicitud.diagnostico = diagnostico.strip()
+    solicitud.indicaciones = (indicaciones or "").strip()
+    solicitud.atendido_en = timezone.now()
+    solicitud.estado = SolicitudAtencion.Estado.ATENDIDO
+    solicitud.save(update_fields=["diagnostico", "indicaciones", "atendido_en", "estado", "actualizado_en"])
+
+    if solicitud.medico_asignado_id:
+        from apps.clinica.disponibilidad import set_disponibilidad_medico, get_disponibilidad_medico
+        if get_disponibilidad_medico(solicitud.medico_asignado_id) == "EN_ATENCION":
+            set_disponibilidad_medico(solicitud.medico_asignado_id, "DISPONIBLE")
+
+    if getattr(settings, "EVENTOS_HABILITADOS", True):
+        from apps.atencion.eventos import publicar_solicitud_atendida
+        publicar_solicitud_atendida(solicitud)
+
+    return solicitud
+
+
+def obtener_ficha_clinica(solicitud_id: int) -> dict:
+    """
+    Devuelve los datos clínicos del episodio actual y el historial previo si el paciente es registrado.
+    """
+    solicitud = obtener_solicitud(solicitud_id)
+
+    es_invitado = solicitud.es_invitado
+    nombre_paciente = ""
+    telefono_paciente = ""
+    email_paciente = ""
+
+    historial_previo = []
+
+    if not es_invitado and solicitud.usuario_id:
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        user = User.objects.filter(pk=solicitud.usuario_id).first()
+        if user:
+            nombre_paciente = (user.get_full_name() or user.username).strip()
+            email_paciente = user.email
+
+        previas = (
+            SolicitudAtencion.objects.filter(
+                usuario_id=solicitud.usuario_id,
+                estado=SolicitudAtencion.Estado.ATENDIDO,
+            )
+            .exclude(pk=solicitud.pk)
+            .select_related("centro", "especialidad_asignada", "medico_asignado")
+            .order_by("-atendido_en")
+        )
+        for prev in previas:
+            historial_previo.append({
+                "id": prev.id,
+                "centro_nombre": prev.centro.nombre if prev.centro else "",
+                "especialidad_nombre": prev.especialidad_asignada.nombre if prev.especialidad_asignada else "",
+                "medico_nombre": prev.medico_asignado.nombre if prev.medico_asignado else "",
+                "motivo": prev.motivo,
+                "diagnostico": prev.diagnostico,
+                "indicaciones": prev.indicaciones,
+                "atendido_en": prev.atendido_en,
+            })
+    else:
+        nombre_paciente = solicitud.nombre_invitado or "Invitado"
+        telefono_paciente = solicitud.telefono_invitado or ""
+
+    return {
+        "id": solicitud.id,
+        "estado": solicitud.estado,
+        "estado_legible": solicitud.get_estado_display(),
+        "creado_en": solicitud.creado_en,
+        "modo": solicitud.modo,
+        "modo_legible": solicitud.get_modo_display(),
+        "motivo": solicitud.motivo,
+        "prioridad": solicitud.prioridad,
+        "observaciones_triage": solicitud.observaciones_triage,
+        "diagnostico": solicitud.diagnostico,
+        "indicaciones": solicitud.indicaciones,
+        "atendido_en": solicitud.atendido_en,
+        "centro_id": solicitud.centro_id,
+        "centro_nombre": solicitud.centro.nombre if solicitud.centro else "",
+        "especialidad_id": solicitud.especialidad_asignada_id,
+        "especialidad_nombre": solicitud.especialidad_asignada.nombre if solicitud.especialidad_asignada else "",
+        "medico_id": solicitud.medico_asignado_id,
+        "medico_nombre": solicitud.medico_asignado.nombre if solicitud.medico_asignado else "",
+        "paciente": {
+            "es_invitado": es_invitado,
+            "usuario_id": solicitud.usuario_id,
+            "nombre": nombre_paciente,
+            "telefono": telefono_paciente,
+            "email": email_paciente,
+        },
+        "mensaje": "" if not es_invitado else "Este paciente no posee historial registrado previo.",
+        "historial_previo": historial_previo,
+    }
+
+
+def obtener_historial_paciente(usuario_id: int) -> list[dict]:
+    """
+    Retorna el historial completo de solicitudes y atenciones de un paciente registrado.
+    """
+    solicitudes = (
+        SolicitudAtencion.objects.filter(usuario_id=usuario_id)
+        .select_related("centro", "especialidad_asignada", "medico_asignado")
+        .order_by("-creado_en")
+    )
+    resultado = []
+    for s in solicitudes:
+        resultado.append({
+            "id": s.id,
+            "estado": s.estado,
+            "estado_legible": s.get_estado_display(),
+            "modo": s.modo,
+            "motivo": s.motivo,
+            "prioridad": s.prioridad,
+            "diagnostico": s.diagnostico,
+            "indicaciones": s.indicaciones,
+            "creado_en": s.creado_en,
+            "atendido_en": s.atendido_en,
+            "centro_id": s.centro_id,
+            "centro_nombre": s.centro.nombre if s.centro else "",
+            "especialidad_id": s.especialidad_asignada_id,
+            "especialidad_nombre": s.especialidad_asignada.nombre if s.especialidad_asignada else "",
+            "medico_nombre": s.medico_asignado.nombre if s.medico_asignado else "",
+        })
+    return resultado
+
