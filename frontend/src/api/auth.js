@@ -65,6 +65,88 @@ export async function loginComoInvitado(nombre = '') {
 }
 
 /**
+ * Decodifica las claims de un JWT en base64url sin dependencias externas.
+ */
+export function parseJwt(token) {
+  if (!token) return null
+  try {
+    const base64Url = token.split('.')[1]
+    if (!base64Url) return null
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    )
+    return JSON.parse(jsonPayload)
+  } catch (e) {
+    return null
+  }
+}
+
+/**
+ * Obtiene el perfil completo y rol del usuario autenticado (/api/v1/auth/me/).
+ */
+export async function obtenerUsuarioActual() {
+  const headers = getAuthHeaders()
+  if (!headers.Authorization) return null
+
+  const res = await fetch(`${API_BASE}/auth/me/`, {
+    headers: {
+      ...headers,
+      'Content-Type': 'application/json',
+    },
+  })
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      // Intentar refrescar antes de fallar
+      const refreshed = await refrescarToken()
+      if (refreshed) {
+        return obtenerUsuarioActual()
+      }
+      cerrarSesion()
+      return null
+    }
+    return null
+  }
+
+  return await res.json()
+}
+
+/**
+ * Refresca el access token usando el refresh token almacenado.
+ */
+export async function refrescarToken() {
+  const refreshToken = localStorage.getItem(KEY_REFRESH)
+  if (!refreshToken) return null
+
+  try {
+    const res = await fetch(`${API_BASE}/auth/refresh/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh: refreshToken }),
+    })
+
+    if (!res.ok) {
+      cerrarSesion()
+      return null
+    }
+
+    const data = await res.json()
+    if (data.access) {
+      localStorage.setItem(KEY_JWT, data.access)
+      return data.access
+    }
+    return null
+  } catch {
+    cerrarSesion()
+    return null
+  }
+}
+
+/**
  * Retorna true si hay una sesión activa (JWT o token de invitado).
  */
 export function tieneSessionActiva() {

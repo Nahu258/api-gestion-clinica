@@ -11,18 +11,29 @@
  */
 
 import { Link, useNavigate } from 'react-router-dom'
-import { tieneSessionActiva } from '../api/auth.js'
+import { useAuth } from '../context/AuthContext.jsx'
 
 export default function Landing() {
   const navigate = useNavigate()
-  const sesionActiva = tieneSessionActiva()
+  const { estaAutenticado, rol, usuario } = useAuth()
 
   const handleCtaPrincipal = () => {
-    if (sesionActiva) {
+    if (rol === 'MEDICO') {
+      navigate('/portal-medico')
+    } else if (rol === 'OPERADOR_CENTRO') {
+      navigate('/panel-centro')
+    } else if (estaAutenticado) {
       navigate('/mapa')
     } else {
       navigate('/ingreso')
     }
+  }
+
+  const getTextoBoton = () => {
+    if (rol === 'MEDICO') return '🩺 Portal Médico'
+    if (rol === 'OPERADOR_CENTRO') return '📋 Panel de Centro'
+    if (estaAutenticado) return 'Ir al mapa'
+    return 'Buscar guardias'
   }
 
   return (
@@ -52,7 +63,7 @@ export default function Landing() {
               className="btn btn--nav-cta"
               onClick={handleCtaPrincipal}
             >
-              {sesionActiva ? 'Ir al mapa' : 'Buscar guardias'}
+              {getTextoBoton()}
             </button>
           </div>
         </div>

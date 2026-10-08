@@ -10,12 +10,13 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { loginConGoogle, loginComoInvitado } from '../api/auth.js'
+import { useAuth } from '../context/AuthContext.jsx'
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 
 export default function Bienvenida() {
   const navigate = useNavigate()
+  const { loginGoogle, loginInvitado } = useAuth()
 
   const [cargandoGoogle, setCargandoGoogle] = useState(false)
   const [cargandoInvitado, setCargandoInvitado] = useState(false)
@@ -34,15 +35,22 @@ export default function Bienvenida() {
     async (response) => {
       setCargandoGoogle(true)
       try {
-        await loginConGoogle(response.credential)
-        irAlMapa()
+        const perfil = await loginGoogle(response.credential)
+        const rolDestino = perfil?.rol
+        if (rolDestino === 'MEDICO') {
+          navigate('/portal-medico', { replace: true })
+        } else if (rolDestino === 'OPERADOR_CENTRO') {
+          navigate('/panel-centro', { replace: true })
+        } else {
+          irAlMapa()
+        }
       } catch (err) {
         mostrarToast('Error al conectar con Google. Podés entrar como invitado sin esperas.')
       } finally {
         setCargandoGoogle(false)
       }
     },
-    [irAlMapa, mostrarToast]
+    [irAlMapa, loginGoogle, navigate, mostrarToast]
   )
 
   const inicializarGoogle = useCallback(() => {
@@ -90,7 +98,7 @@ export default function Bienvenida() {
     if (cargandoInvitado) return
     setCargandoInvitado(true)
     try {
-      await loginComoInvitado()
+      await loginInvitado()
       irAlMapa()
     } catch (err) {
       mostrarToast('Ingresando en modo desconectado...')
