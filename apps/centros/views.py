@@ -343,3 +343,42 @@ class CentroEspecialistasDisponiblesAPIView(APIView):
         )
 
 
+class CentroSolicitudesAPIView(APIView):
+    """
+    GET /api/v1/centros/{centro_id}/solicitudes/?estado=PENDIENTE,ACEPTADO&modo=solicitud
+
+    Bandeja de emergencias del centro de salud para el operador de guardia.
+    Permiso: OPERADOR_CENTRO o ADMIN.
+    """
+
+    def get(self, request: Request, centro_id: int) -> Response:
+        from apps.atencion.models import SolicitudAtencion
+        from apps.atencion.serializers import SolicitudAtencionSerializer
+        from core.permissions import IsOperadorCentro
+
+        # Validar permisos
+        permiso = IsOperadorCentro()
+        if not permiso.has_permission(request, self):
+            return Response(
+                {"error": "Se requiere rol de Operador de Centro o Administrador."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        qs = SolicitudAtencion.objects.filter(centro_id=centro_id).select_related(
+            "centro", "especialidad_asignada", "medico_asignado"
+        )
+
+        estado = request.query_params.get("estado")
+        if estado:
+            estados = [e.strip() for e in estado.split(",") if e.strip()]
+            qs = qs.filter(estado__in=estados)
+
+        modo = request.query_params.get("modo")
+        if modo:
+            qs = qs.filter(modo=modo)
+
+        qs = qs.order_by("-creado_en")
+        serializer = SolicitudAtencionSerializer(qs, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+

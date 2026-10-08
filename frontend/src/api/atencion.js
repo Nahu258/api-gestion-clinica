@@ -165,3 +165,164 @@ export function obtenerUltimaSolicitudGuardada() {
     return null
   }
 }
+
+/**
+ * Lista las solicitudes de atención de un centro de salud (para el operador).
+ */
+export async function listarSolicitudesCentro(centroId, { estado, modo } = {}) {
+  const params = new URLSearchParams()
+  if (estado) params.append('estado', estado)
+  if (modo) params.append('modo', modo)
+
+  const url = `${API_BASE}/centros/${centroId}/solicitudes/?${params.toString()}`
+  const res = await fetch(url, {
+    headers: {
+      'Accept': 'application/json',
+      ...getAuthHeaders(),
+    },
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || `Error ${res.status} al listar solicitudes del centro.`)
+  }
+
+  return await res.json()
+}
+
+/**
+ * Deriva una solicitud a un médico especialista (Triage del operador).
+ */
+export async function derivarSolicitud(solicitudId, { especialidad_id, medico_id, prioridad = 'alta', observaciones = '' }) {
+  const res = await fetch(`${API_BASE}/atencion/solicitudes/${solicitudId}/derivar/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({
+      especialidad_id,
+      medico_id,
+      prioridad,
+      observaciones,
+    }),
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || err.detail || `Error ${res.status} al derivar la solicitud.`)
+  }
+
+  return await res.json()
+}
+
+/**
+ * Inicia la atención médica de una solicitud derivada (Médico especialista).
+ */
+export async function iniciarAtencion(solicitudId) {
+  const res = await fetch(`${API_BASE}/atencion/solicitudes/${solicitudId}/iniciar-atencion/`, {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      ...getAuthHeaders(),
+    },
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || err.detail || `Error ${res.status} al iniciar la atención.`)
+  }
+
+  return await res.json()
+}
+
+/**
+ * Finaliza la atención médica guardando diagnóstico e indicaciones.
+ */
+export async function completarAtencion(solicitudId, { diagnostico, indicaciones = '' }) {
+  const res = await fetch(`${API_BASE}/atencion/solicitudes/${solicitudId}/completar/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ diagnostico, indicaciones }),
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || err.detail || `Error ${res.status} al finalizar la atención.`)
+  }
+
+  return await res.json()
+}
+
+/**
+ * Obtiene la ficha clínica del paciente y detalles del episodio para el médico.
+ */
+export async function obtenerFichaClinica(solicitudId) {
+  const res = await fetch(`${API_BASE}/atencion/solicitudes/${solicitudId}/ficha-clinica/`, {
+    headers: {
+      'Accept': 'application/json',
+      ...getAuthHeaders(),
+    },
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || `Error ${res.status} al consultar la ficha clínica.`)
+  }
+
+  return await res.json()
+}
+
+/**
+ * Obtiene el historial clínico del paciente registrado autenticado.
+ */
+export async function obtenerMiHistorial() {
+  const res = await fetch(`${API_BASE}/pacientes/mi-historial/`, {
+    headers: {
+      'Accept': 'application/json',
+      ...getAuthHeaders(),
+    },
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || `Error ${res.status} al consultar tu historial médico.`)
+  }
+
+  return await res.json()
+}
+
+/**
+ * Lista las especialidades activas de un centro.
+ */
+export async function listarEspecialidadesCentro(centroId) {
+  const res = await fetch(`${API_BASE}/centros/${centroId}/especialidades/`, {
+    headers: {
+      'Accept': 'application/json',
+      ...getAuthHeaders(),
+    },
+  })
+  if (!res.ok) return []
+  return await res.json()
+}
+
+/**
+ * Lista los especialistas disponibles de un centro (en tiempo real con Redis).
+ */
+export async function listarEspecialistasDisponiblesCentro(centroId, especialidadId = null) {
+  const query = especialidadId ? `?especialidad_id=${especialidadId}` : ''
+  const res = await fetch(`${API_BASE}/centros/${centroId}/especialistas-disponibles/${query}`, {
+    headers: {
+      'Accept': 'application/json',
+      ...getAuthHeaders(),
+    },
+  })
+  if (!res.ok) return []
+  const data = await res.json()
+  return data.resultados || []
+}
