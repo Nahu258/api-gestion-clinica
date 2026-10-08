@@ -20,10 +20,16 @@ const KEY_GUEST_TOKEN = 'emergenciaya_guest_token'
  * Intercambia el id_token de Google por JWT propios del backend.
  */
 export async function loginConGoogle(idToken) {
+  const solicitudId = sessionStorage.getItem('emergenciaya_solicitud_id')
+  const payload = { id_token: idToken }
+  if (solicitudId && !isNaN(Number(solicitudId))) {
+    payload.solicitud_id = Number(solicitudId)
+  }
+
   const res = await fetch(`${API_BASE}/auth/google/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id_token: idToken }),
+    body: JSON.stringify(payload),
   })
 
   if (!res.ok) {

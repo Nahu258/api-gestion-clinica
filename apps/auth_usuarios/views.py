@@ -59,6 +59,16 @@ class GoogleLoginAPIView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        # Vincular solicitud de invitado previa si se envía en el login (Épica 4 issue #30)
+        solicitud_id = request.data.get("solicitud_id")
+        if solicitud_id and resultado.get("usuario"):
+            try:
+                from apps.atencion.models import SolicitudAtencion
+                user_id = resultado["usuario"]["id"]
+                SolicitudAtencion.objects.filter(pk=solicitud_id, usuario_id__isnull=True).update(usuario_id=user_id)
+            except Exception as exc:
+                logger.warning("Error vinculando solicitud %s: %s", solicitud_id, exc)
+
         return Response(resultado, status=status.HTTP_201_CREATED)
 
 

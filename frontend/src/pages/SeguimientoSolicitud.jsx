@@ -381,6 +381,39 @@ export default function SeguimientoSolicitud() {
             </div>
           )}
 
+          {/* ── Banner de Conversión de Invitado a Registrado (Épica 4 issue #30) ── */}
+          {!solicitud.usuario_id && (
+            <div
+              className="guest-conversion-banner"
+              style={{
+                background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95))',
+                border: '1px solid rgba(56, 189, 248, 0.4)',
+                borderRadius: '12px',
+                padding: '1.25rem',
+                margin: '1.25rem 0',
+                textAlign: 'center',
+                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)',
+              }}
+            >
+              <span style={{ fontSize: '1.75rem', display: 'block', marginBottom: '0.35rem' }}>📂</span>
+              <h4 style={{ color: '#f8fafc', fontWeight: 800, fontSize: '1.05rem', margin: '0 0 0.35rem' }}>
+                ¿Querés guardar esta atención en tu ficha clínica?
+              </h4>
+              <p style={{ color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.4, margin: '0 0 1rem' }}>
+                Creá tu cuenta o ingresá con Google para no perder tu historial, diagnósticos e indicaciones médicas recibidas.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <Link
+                  to="/ingreso"
+                  className="btn btn--hero-primary"
+                  style={{ fontSize: '0.88rem', padding: '0.65rem 1.25rem', textDecoration: 'none' }}
+                >
+                  <span>🔒 Vincular y Guardar mi Historial</span>
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* ── Botones de Acción Inmediata ── */}
           <div className="tracking-actions-stack">
             {solicitud.centro_telefono && !esAtendido && (
