@@ -101,3 +101,60 @@ class MiDisponibilidadAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class MisSolicitudesMedicoAPIView(APIView):
+    """
+    GET /api/v1/medicos/mis-solicitudes/?estado=DERIVADO,EN_ATENCION
+
+    Devuelve la cola de pacientes derivados y en atención asignados al médico,
+    junto con el contador de atenciones finalizadas hoy.
+    """
+
+    permission_classes = [IsAuthenticated, IsMedicoEspecialista]
+
+    def get(self, request: Request) -> Response:
+        from apps.atencion.models import SolicitudAtencion
+        from apps.atencion.serializers import SolicitudAtencionSerializer
+        from django.utils import timezone
+
+        user = request.user
+        medico_id = None
+        if hasattr(user, "perfil") and user.perfil.medico_id:
+            medico_id = user.perfil.medico_id
+        elif request.query_params.get("medico_id"):
+            medico_id = int(request.query_params.get("medico_id"))
+
+        if not medico_id:
+            return Response(
+                {"error": "El usuario no tiene una ficha de médico asociada."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        qs = SolicitudAtencion.objects.filter(medico_asignado_id=medico_id).select_related(
+            "centro", "especialidad_asignada", "medico_asignado"
+        )
+
+        estado_param = request.query_params.get("estado")
+        if estado_param:
+            estados = [e.strip() for e in estado_param.split(",") if e.strip()]
+            qs = qs.filter(estado__in=estados)
+
+        solicitudes = qs.order_by("-fecha_derivacion", "-creado_en")
+
+        hoy_inicio = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        atendidos_hoy = SolicitudAtencion.objects.filter(
+            medico_asignado_id=medico_id,
+            estado=SolicitudAtencion.Estado.ATENDIDO,
+            atendido_en__gte=hoy_inicio,
+        ).count()
+
+        serializer = SolicitudAtencionSerializer(solicitudes, many=True)
+        return Response(
+            {
+                "medico_id": medico_id,
+                "atendidos_hoy": atendidos_hoy,
+                "solicitudes": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )

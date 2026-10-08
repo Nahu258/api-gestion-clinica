@@ -326,3 +326,58 @@ export async function listarEspecialistasDisponiblesCentro(centroId, especialida
   const data = await res.json()
   return data.resultados || []
 }
+
+/**
+ * Consulta la disponibilidad actual del médico logueado.
+ */
+export async function obtenerMiDisponibilidad() {
+  const res = await fetch(`${API_BASE}/medicos/mi-disponibilidad/`, {
+    headers: {
+      'Accept': 'application/json',
+      ...getAuthHeaders(),
+    },
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || `Error ${res.status} al consultar disponibilidad.`)
+  }
+  return await res.json()
+}
+
+/**
+ * Actualiza el estado de disponibilidad del médico en Redis.
+ */
+export async function actualizarMiDisponibilidad(estado) {
+  const res = await fetch(`${API_BASE}/medicos/mi-disponibilidad/`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ estado }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || `Error ${res.status} al actualizar disponibilidad.`)
+  }
+  return await res.json()
+}
+
+/**
+ * Obtiene la cola de pacientes derivados al médico logueado y resumen de guardia.
+ */
+export async function obtenerColaMedico(estado = 'derivado,en_atencion') {
+  const query = estado ? `?estado=${estado}` : ''
+  const res = await fetch(`${API_BASE}/medicos/mis-solicitudes/${query}`, {
+    headers: {
+      'Accept': 'application/json',
+      ...getAuthHeaders(),
+    },
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || `Error ${res.status} al consultar cola de pacientes.`)
+  }
+  return await res.json()
+}
