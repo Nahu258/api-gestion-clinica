@@ -9,6 +9,7 @@ Comando de seedeo para la Épica 4:
 """
 
 from django.core.management.base import BaseCommand
+from redis.exceptions import RedisError
 from django.contrib.auth import get_user_model
 from apps.centros.models import CentroEmergencia, Especialidad, CentroEspecialidad, AsignacionMedico
 from apps.clinica.models import Medico
@@ -60,7 +61,7 @@ class Command(BaseCommand):
         for nombre, matricula, esp_enum, esp_obj in medicos_data:
             medico, _ = Medico.objects.get_or_create(
                 nombre=nombre,
-                defaults={"matricula": matricula, "especialidad": esp_enum, "activo": True},
+                defaults={"matricula": matricula, "especialidad": esp_enum},
             )
             medico.matricula = matricula
             medico.save()
@@ -73,8 +74,11 @@ class Command(BaseCommand):
                     defaults={"activo": True},
                 )
 
-            # Poner disponible en Redis
-            set_disponibilidad_medico(medico.id, "DISPONIBLE")
+            # Poner disponible en Redis (si no está levantado, se infiere de las guardias)
+            try:
+                set_disponibilidad_medico(medico.id, "DISPONIBLE")
+            except RedisError:
+                self.stdout.write(self.style.WARNING(f"  Redis no disponible: {medico.nombre} sin estado en vivo"))
             medicos_creados.append(medico)
 
         # 4. Usuario de Prueba: OPERADOR DE CENTRO
