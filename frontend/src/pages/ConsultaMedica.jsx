@@ -10,8 +10,18 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
+import {
+  ArrowLeft,
+  CheckCircle,
+  ClockCounterClockwise,
+  FloppyDisk,
+  Warning,
+} from '@phosphor-icons/react'
 import Navbar from '../components/Navbar.jsx'
 import { obtenerFichaClinica, completarAtencion } from '../api/atencion.js'
+
+const fechaCorta = (iso) =>
+  iso ? new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
 
 export default function ConsultaMedica() {
   const { id } = useParams()
@@ -54,7 +64,7 @@ export default function ConsultaMedica() {
     e.preventDefault()
 
     if (!diagnostico || diagnostico.trim().length < 5) {
-      setErrorValidacion('El diagnóstico médico es obligatorio y debe tener al menos 5 caracteres.')
+      setErrorValidacion('El diagnóstico es obligatorio y debe tener al menos 5 caracteres.')
       return
     }
 
@@ -72,37 +82,59 @@ export default function ConsultaMedica() {
         navigate('/portal-medico', { replace: true })
       }, 2000)
     } catch (err) {
-      setErrorValidacion(err.message || 'Error al guardar el diagnóstico y cerrar la atención.')
+      setErrorValidacion(err.message || 'No se pudo guardar el diagnóstico ni cerrar la atención.')
       setGuardando(false)
     }
   }
 
   if (cargando) {
     return (
-      <div className="login-viewport" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="ui-shell">
         <Navbar />
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ textAlign: 'center', color: '#94a3b8' }}>
-            <div className="spinner" style={{ margin: '0 auto 1rem', width: '36px', height: '36px', border: '3px solid rgba(255,255,255,0.2)', borderTopColor: '#38bdf8', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-            <p>Accediendo a la ficha clínica del paciente #{id}...</p>
+        <main className="ui-page" aria-busy="true">
+          <div className="ui-skeleton" style={{ height: 14, width: 180, marginBottom: 18 }} />
+          <div className="ui-skeleton" style={{ height: 30, width: 320, marginBottom: 28 }} />
+          <div className="ui-split">
+            <div className="ui-stack">
+              <div className="ui-card ui-skel-row">
+                <div className="ui-skeleton" style={{ height: 16, width: '40%' }} />
+                <div className="ui-skeleton" style={{ height: 12, width: '70%' }} />
+                <div className="ui-skeleton" style={{ height: 12, width: '55%' }} />
+              </div>
+              <div className="ui-card ui-skel-row">
+                <div className="ui-skeleton" style={{ height: 16, width: '30%' }} />
+                <div className="ui-skeleton" style={{ height: 60, width: '100%' }} />
+              </div>
+            </div>
+            <div className="ui-card ui-skel-row">
+              <div className="ui-skeleton" style={{ height: 16, width: '50%' }} />
+              <div className="ui-skeleton" style={{ height: 110, width: '100%' }} />
+              <div className="ui-skeleton" style={{ height: 110, width: '100%' }} />
+            </div>
           </div>
-        </div>
+        </main>
       </div>
     )
   }
 
   if (error || !ficha) {
     return (
-      <div className="login-viewport" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="ui-shell">
         <Navbar />
-        <main style={{ maxWidth: '600px', margin: '4rem auto', padding: '0 1rem', textAlign: 'center' }}>
-          <div className="login-card">
-            <span style={{ fontSize: '3rem', display: 'block', marginBottom: '1rem' }}>⚠️</span>
-            <h2 style={{ color: '#f8fafc', marginBottom: '0.75rem' }}>No se pudo acceder a la atención</h2>
-            <p style={{ color: '#94a3b8', marginBottom: '1.5rem' }}>{error || 'La solicitud no existe o no tiene permisos asignados.'}</p>
-            <Link to="/portal-medico" className="btn-ingreso btn-ingreso--google" style={{ justifyContent: 'center', background: '#0284c7', color: '#fff', border: 'none' }}>
-              Volver al Portal Médico
-            </Link>
+        <main className="ui-page">
+          <div className="ui-card consulta-error">
+            <div className="ui-empty">
+              <div className="ui-empty__icon">
+                <Warning size={22} />
+              </div>
+              <p className="ui-empty__title">No se pudo abrir la atención #{id}</p>
+              <p className="ui-empty__text">
+                {error || 'La solicitud no existe o no está asignada a tu usuario.'}
+              </p>
+              <Link to="/portal-medico" className="ui-btn ui-btn--dark" style={{ marginTop: 20 }}>
+                Volver al portal médico
+              </Link>
+            </div>
           </div>
         </main>
       </div>
@@ -112,142 +144,110 @@ export default function ConsultaMedica() {
   const paciente = ficha.paciente || {}
   const esInvitado = paciente.es_invitado
   const historialPrevio = ficha.historial_previo || []
+  const finalizada = ficha.estado === 'atendido'
+  const prioridad = (ficha.prioridad || 'alta').toLowerCase()
+  const chipPrioridad =
+    prioridad === 'urgente' ? 'ui-chip--alert' : prioridad === 'alta' ? 'ui-chip--warn' : ''
 
   return (
-    <div className="login-viewport" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="ui-shell">
       <Navbar />
 
-      {/* Modal de Éxito al finalizar */}
       {finalizadoExito && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0,0,0,0.85)',
-          backdropFilter: 'blur(6px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 4000,
-          padding: '1rem'
-        }}>
-          <div style={{
-            background: '#1e293b',
-            border: '1px solid #10b981',
-            borderRadius: '16px',
-            padding: '2.5rem 2rem',
-            textAlign: 'center',
-            maxWidth: '440px',
-            width: '100%',
-            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.6)'
-          }}>
-            <div style={{ fontSize: '3.5rem', marginBottom: '1rem' }}>✅</div>
-            <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f8fafc', margin: '0 0 0.5rem' }}>
-              Atención Finalizada
-            </h2>
-            <p style={{ color: '#94a3b8', fontSize: '0.95rem', margin: '0 0 1.5rem' }}>
-              El diagnóstico e indicaciones se registraron correctamente. Redirigiendo a tu cola de guardia...
-            </p>
-            <div className="spinner" style={{ margin: '0 auto', width: '24px', height: '24px', border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        <div className="ui-backdrop" role="dialog" aria-modal="true" aria-labelledby="consulta-ok-title">
+          <div className="ui-dialog" style={{ maxWidth: 420 }}>
+            <div className="ui-empty">
+              <div className="ui-empty__icon consulta-ok-icon">
+                <CheckCircle size={24} weight="fill" />
+              </div>
+              <p id="consulta-ok-title" className="ui-empty__title">Atención finalizada</p>
+              <p className="ui-empty__text">
+                El diagnóstico y las indicaciones quedaron registrados. Volviendo a tu cola de pacientes.
+              </p>
+            </div>
           </div>
         </div>
       )}
 
-      <main style={{ maxWidth: '1100px', width: '100%', margin: '1.5rem auto', padding: '0 1rem', flex: 1 }}>
-        {/* Barra superior de retorno */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-          <Link to="/portal-medico" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#38bdf8', textDecoration: 'none', fontSize: '0.9rem', fontWeight: 600 }}>
-            <span>←</span>
-            <span>Volver a la cola de pacientes</span>
-          </Link>
+      <main className="ui-page">
+        <Link to="/portal-medico" className="ui-btn ui-btn--quiet ui-btn--sm consulta-back">
+          <ArrowLeft size={16} />
+          Cola de pacientes
+        </Link>
 
-          <span style={{
-            textTransform: 'uppercase',
-            fontSize: '0.75rem',
-            fontWeight: 700,
-            padding: '0.25rem 0.65rem',
-            borderRadius: '9999px',
-            background: ficha.estado === 'atendido' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(234, 179, 8, 0.2)',
-            color: ficha.estado === 'atendido' ? '#34d399' : '#facc15'
-          }}>
-            {ficha.estado === 'atendido' ? '✅ Atención Finalizada' : '🟡 Consulta en Curso'}
-          </span>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', alignItems: 'start' }}>
-          {/* Columna Izquierda: Ficha Clínica y Antecedentes del Paciente */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            {/* Tarjeta de Datos del Paciente */}
-            <div style={{ background: 'rgba(30, 41, 59, 0.7)', border: '1px solid rgba(51, 65, 85, 0.6)', borderRadius: '12px', padding: '1.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '1rem' }}>
-                <div>
-                  <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#f8fafc', margin: '0 0 0.25rem' }}>
-                    {paciente.nombre || 'Paciente de Guardia'}
-                  </h2>
-                  <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>
-                    Atención de Emergencia #{ficha.id}
-                  </span>
-                </div>
-
-                {esInvitado ? (
-                  <span style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#facc15', border: '1px solid rgba(234, 179, 8, 0.3)', padding: '0.25rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
-                    ⚡ Invitado (Sin cuenta)
-                  </span>
-                ) : (
-                  <span style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)', padding: '0.25rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
-                    👤 Paciente Registrado
-                  </span>
-                )}
-              </div>
-
-              {paciente.telefono && (
-                <div style={{ fontSize: '0.88rem', color: '#cbd5e1', marginBottom: '0.5rem' }}>
-                  📞 <strong>Contacto: </strong>{paciente.telefono}
-                </div>
-              )}
-              {paciente.email && (
-                <div style={{ fontSize: '0.88rem', color: '#cbd5e1', marginBottom: '0.75rem' }}>
-                  ✉️ <strong>Email: </strong>{paciente.email}
-                </div>
-              )}
-
-              <div style={{ fontSize: '0.82rem', color: '#94a3b8', borderTop: '1px solid rgba(51, 65, 85, 0.5)', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between' }}>
-                <span>Centro: <strong>{ficha.centro_nombre}</strong></span>
-                <span>Prioridad: <strong style={{ textTransform: 'uppercase', color: '#f97316' }}>{ficha.prioridad || 'Alta'}</strong></span>
-              </div>
+        <header className="ui-pagehead">
+          <div>
+            <h1 className="ui-pagehead__title">{paciente.nombre || 'Paciente de guardia'}</h1>
+            <div className="ui-pagehead__meta">
+              <span className="ui-mono">Atención #{ficha.id}</span>
+              <span>{ficha.centro_nombre}</span>
+              <span>{esInvitado ? 'Ingresó como invitado' : 'Paciente con cuenta'}</span>
             </div>
+          </div>
+          <div className="ui-pagehead__actions">
+            <span className={`ui-chip ${chipPrioridad}`}>Prioridad {prioridad}</span>
+            <span className={`ui-chip ${finalizada ? 'ui-chip--ok' : 'ui-chip--ink'}`}>
+              {finalizada ? 'Atención finalizada' : 'Consulta en curso'}
+            </span>
+          </div>
+        </header>
 
-            {/* Motivo de Consulta Actual y Triage */}
-            <div style={{ background: 'rgba(30, 41, 59, 0.7)', border: '1px solid rgba(51, 65, 85, 0.6)', borderRadius: '12px', padding: '1.5rem' }}>
-              <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#f8fafc', margin: '0 0 0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <span>🚨</span>
-                <span>Motivo de Ingreso a Guardia</span>
-              </h3>
-
-              <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '0.85rem 1rem', borderRadius: '8px', color: '#f1f5f9', fontSize: '0.9rem', lineHeight: 1.5, marginBottom: '0.75rem' }}>
-                {ficha.motivo || 'No se registraron notas preliminares del paciente.'}
-              </div>
+        <div className="ui-split">
+          {/* Columna izquierda: ficha clínica */}
+          <div className="ui-stack">
+            <section className="ui-card ui-card__pad">
+              <h2 className="ui-h2" style={{ marginBottom: 12 }}>Motivo de ingreso</h2>
+              <p className="ui-quote">
+                {ficha.motivo || 'El paciente no dejó una descripción al pedir atención.'}
+              </p>
 
               {ficha.observaciones_triage ? (
-                <div style={{ background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '8px', padding: '0.75rem 1rem', fontSize: '0.85rem', color: '#fef3c7' }}>
-                  <strong>Notas del Triage de Guardia: </strong>
-                  {ficha.observaciones_triage}
+                <div className="consulta-triage">
+                  <p className="ui-label">Notas de triage</p>
+                  <p>{ficha.observaciones_triage}</p>
                 </div>
               ) : null}
-            </div>
 
-            {/* Historial Clínico Previo en la Red */}
-            <div style={{ background: 'rgba(30, 41, 59, 0.7)', border: '1px solid rgba(51, 65, 85, 0.6)', borderRadius: '12px', padding: '1.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#f8fafc', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <span>📂</span>
-                  <span>Antecedentes y Consultas Previas</span>
-                </h3>
+              <dl className="ui-kv consulta-datos">
+                {paciente.telefono && (
+                  <>
+                    <dt>Teléfono</dt>
+                    <dd className="ui-mono">{paciente.telefono}</dd>
+                  </>
+                )}
+                {paciente.email && (
+                  <>
+                    <dt>Email</dt>
+                    <dd>{paciente.email}</dd>
+                  </>
+                )}
+                <dt>Centro</dt>
+                <dd>{ficha.centro_nombre}</dd>
+                {ficha.creado_en && (
+                  <>
+                    <dt>Ingreso</dt>
+                    <dd className="ui-mono">
+                      {new Date(ficha.creado_en).toLocaleString('es-AR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false,
+                      })}
+                    </dd>
+                  </>
+                )}
+              </dl>
+            </section>
 
+            <section className="ui-card">
+              <div className="ui-card__head">
+                <h2 className="ui-h2">Consultas previas</h2>
                 {historialPrevio.length > 0 && (
                   <button
                     type="button"
+                    className="ui-btn ui-btn--quiet ui-btn--sm"
                     onClick={() => setMostrarHistorialPrevio(!mostrarHistorialPrevio)}
-                    style={{ background: 'transparent', border: 'none', color: '#38bdf8', fontSize: '0.8rem', cursor: 'pointer' }}
                   >
                     {mostrarHistorialPrevio ? 'Ocultar' : 'Mostrar'} ({historialPrevio.length})
                   </button>
@@ -255,142 +255,94 @@ export default function ConsultaMedica() {
               </div>
 
               {esInvitado ? (
-                <div style={{ background: 'rgba(15, 23, 42, 0.4)', border: '1px dashed rgba(51, 65, 85, 0.6)', borderRadius: '8px', padding: '1rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
-                  ℹ️ Este paciente ingresó como <strong>invitado</strong> temporal. No posee historial previo registrado en la red.
+                <div className="ui-empty">
+                  <div className="ui-empty__icon">
+                    <ClockCounterClockwise size={22} />
+                  </div>
+                  <p className="ui-empty__text">
+                    Ingresó como invitado, así que no hay historial asociado a una cuenta.
+                  </p>
                 </div>
               ) : historialPrevio.length === 0 ? (
-                <div style={{ background: 'rgba(15, 23, 42, 0.4)', borderRadius: '8px', padding: '1rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
-                  Es la primera consulta registrada de este paciente en la red médica.
+                <div className="ui-empty">
+                  <div className="ui-empty__icon">
+                    <ClockCounterClockwise size={22} />
+                  </div>
+                  <p className="ui-empty__text">Es la primera atención registrada de este paciente.</p>
                 </div>
               ) : mostrarHistorialPrevio ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '280px', overflowY: 'auto' }}>
+                <ol className="ui-rows consulta-previas">
                   {historialPrevio.map((prev) => (
-                    <div
-                      key={prev.id}
-                      style={{
-                        background: 'rgba(15, 23, 42, 0.6)',
-                        border: '1px solid rgba(51, 65, 85, 0.4)',
-                        borderRadius: '8px',
-                        padding: '0.75rem',
-                        fontSize: '0.82rem'
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', marginBottom: '0.25rem' }}>
-                        <span>{prev.centro_nombre} · {prev.especialidad_nombre || 'Guardia'}</span>
-                        <span>{prev.atendido_en ? new Date(prev.atendido_en).toLocaleDateString('es-AR') : ''}</span>
-                      </div>
-                      <div style={{ color: '#f8fafc', fontWeight: 600, marginBottom: '0.2rem' }}>
-                        Dx: {prev.diagnostico}
-                      </div>
-                      {prev.indicaciones && (
-                        <div style={{ color: '#94a3b8' }}>
-                          Indicaciones: {prev.indicaciones}
+                    <li key={prev.id} className="ui-row" style={{ gridTemplateColumns: '1fr' }}>
+                      <div>
+                        <div className="ui-row__meta" style={{ marginTop: 0 }}>
+                          <span className="ui-mono">{fechaCorta(prev.atendido_en)}</span>
+                          <span>{prev.centro_nombre}</span>
+                          <span>{prev.especialidad_nombre || 'Guardia'}</span>
+                          {prev.medico_nombre && <span>{prev.medico_nombre}</span>}
                         </div>
-                      )}
-                    </div>
+                        <p className="ui-row__title" style={{ marginTop: 6 }}>{prev.diagnostico}</p>
+                        {prev.indicaciones && <p className="ui-row__body">{prev.indicaciones}</p>}
+                      </div>
+                    </li>
                   ))}
-                </div>
+                </ol>
               ) : null}
-            </div>
+            </section>
           </div>
 
-          {/* Columna Derecha: Formulario de Registro Médico (Cierre) */}
-          <div style={{ background: 'rgba(30, 41, 59, 0.7)', border: '1px solid rgba(51, 65, 85, 0.6)', borderRadius: '12px', padding: '1.75rem' }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#f8fafc', margin: '0 0 0.5rem' }}>
-              Registro Médico y Cierre de Consulta
-            </h2>
-            <p style={{ fontSize: '0.88rem', color: '#94a3b8', margin: '0 0 1.5rem', lineHeight: 1.4 }}>
-              Asiente el diagnóstico médico definitivo y las indicaciones terapéuticas para el paciente.
+          {/* Columna derecha: cierre de la consulta */}
+          <section className="ui-card ui-card__pad consulta-cierre">
+            <h2 className="ui-h2">Cierre de la consulta</h2>
+            <p className="ui-help" style={{ margin: '4px 0 18px' }}>
+              Al finalizar, la solicitud pasa a Atendido y queda en el historial del paciente.
             </p>
 
             {errorValidacion && (
-              <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5', padding: '0.75rem 1rem', borderRadius: '8px', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-                {errorValidacion}
+              <div className="ui-alert" role="alert">
+                <Warning size={18} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span>{errorValidacion}</span>
               </div>
             )}
 
-            <form onSubmit={handleFinalizarAtencion} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              {/* Diagnóstico */}
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#f1f5f9', marginBottom: '0.4rem' }}>
-                  Diagnóstico Médico * <span style={{ color: '#f87171' }}>(requerido)</span>
-                </label>
+            <form onSubmit={handleFinalizarAtencion} className="ui-form">
+              <div className="ui-field">
+                <label htmlFor="diagnostico" className="ui-label">Diagnóstico (obligatorio)</label>
                 <textarea
+                  id="diagnostico"
+                  className="ui-textarea"
                   value={diagnostico}
                   onChange={(e) => setDiagnostico(e.target.value)}
-                  placeholder="Ej: Traumatismo cerrado de tobillo derecho con esguince grado II del ligamento peroneoastragalino..."
+                  placeholder="Ej: Esguince de tobillo derecho grado II"
                   rows={4}
                   required
-                  style={{
-                    width: '100%',
-                    background: '#0f172a',
-                    color: '#f8fafc',
-                    border: '1px solid rgba(51, 65, 85, 0.8)',
-                    borderRadius: '8px',
-                    padding: '0.75rem',
-                    fontSize: '0.9rem',
-                    lineHeight: 1.5,
-                    resize: 'vertical'
-                  }}
                 />
+                <span className="ui-help">Mínimo 5 caracteres.</span>
               </div>
 
-              {/* Indicaciones y Tratamiento */}
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#f1f5f9', marginBottom: '0.4rem' }}>
-                  Indicaciones, Tratamiento y Pautas de Alarma
-                </label>
+              <div className="ui-field">
+                <label htmlFor="indicaciones" className="ui-label">Indicaciones y pautas de alarma</label>
                 <textarea
+                  id="indicaciones"
+                  className="ui-textarea"
                   value={indicaciones}
                   onChange={(e) => setIndicaciones(e.target.value)}
-                  placeholder="Ej: Ibuprofeno 400mg cada 8hs con las comidas por 3 días. Crioterapia local 15 min 3 veces al día. Reposo deportivo por 10 días. Consultar nuevamente ante aumento brusco de edema o cambio de coloración..."
-                  rows={5}
-                  style={{
-                    width: '100%',
-                    background: '#0f172a',
-                    color: '#f8fafc',
-                    border: '1px solid rgba(51, 65, 85, 0.8)',
-                    borderRadius: '8px',
-                    padding: '0.75rem',
-                    fontSize: '0.9rem',
-                    lineHeight: 1.5,
-                    resize: 'vertical'
-                  }}
+                  placeholder="Ej: Ibuprofeno 400 mg cada 8 h por 3 días. Hielo local 15 min, 3 veces al día."
+                  rows={6}
                 />
+                <span className="ui-help">Opcional. El paciente las ve en su historial.</span>
               </div>
 
-              {/* Botón de Finalización */}
-              <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <button
-                  type="submit"
-                  disabled={guardando}
-                  style={{
-                    background: '#10b981',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '0.85rem',
-                    fontSize: '0.95rem',
-                    fontWeight: 800,
-                    cursor: guardando ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    opacity: guardando ? 0.7 : 1,
-                    boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.3)'
-                  }}
-                >
-                  <span>💾</span>
-                  <span>{guardando ? 'Guardando atención...' : 'Finalizar Atención Médica'}</span>
-                </button>
-
-                <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', textAlign: 'center' }}>
-                  Al finalizar, la solicitud pasará a estado Atendido y quedará registrada en el historial del paciente.
-                </p>
-              </div>
+              <button
+                type="submit"
+                className="ui-btn ui-btn--primary ui-btn--lg ui-btn--block"
+                disabled={guardando}
+              >
+                <FloppyDisk size={18} />
+                {guardando ? 'Guardando...' : 'Finalizar atención'}
+              </button>
             </form>
-          </div>
+          </section>
         </div>
       </main>
     </div>

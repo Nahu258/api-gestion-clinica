@@ -1,15 +1,25 @@
 /**
- * PortalMedico.jsx - Portal del Doctor / Especialista.
+ * PortalMedico.jsx - Panel de control del médico de guardia.
  *
- * Épica 4 (AE4-18):
- * - Control de disponibilidad en tiempo real con Redis (Disponible, En atención, Fuera de guardia).
- * - Cola de pacientes derivados en orden de prioridad y espera.
- * - Acción de "Llamar paciente / Iniciar atención" que transiciona a EN_ATENCION y abre la ficha clínica.
- * - Resumen de guardia con pacientes atendidos en el día.
+ * - Disponibilidad en tiempo real (Redis): disponible, en consulta, fuera de guardia.
+ * - Cola de pacientes derivados por la administración, ordenada por prioridad.
+ * - Llamar al paciente pasa la solicitud a EN_ATENCION y abre la ficha clínica.
+ * - Agenda semanal de guardias y últimas atenciones cerradas.
+ * Se refresca cada 6 segundos.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import {
+  ArrowRight,
+  Buildings,
+  CalendarBlank,
+  Clock,
+  IdentificationCard,
+  Megaphone,
+  Stethoscope,
+  WarningCircle,
+} from '@phosphor-icons/react'
 import { useAuth } from '../context/AuthContext.jsx'
 import Navbar from '../components/Navbar.jsx'
 import {
@@ -19,410 +29,345 @@ import {
   iniciarAtencion,
 } from '../api/atencion.js'
 
+const ESTADOS = [
+  { id: 'DISPONIBLE', label: 'Disponible', dot: 'ui-dot--ok' },
+  { id: 'EN_ATENCION', label: 'En consulta', dot: 'ui-dot--warn' },
+  { id: 'FUERA_DE_GUARDIA', label: 'Fuera de guardia', dot: '' },
+]
+
+const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+const ORDEN_PRIORIDAD = { urgente: 0, alta: 1, media: 2, baja: 3 }
+
+function haceCuanto(fecha) {
+  if (!fecha) return ''
+  const min = Math.max(0, Math.floor((Date.now() - new Date(fecha)) / 60000))
+  if (min < 1) return 'recién'
+  if (min < 60) return `hace ${min} min`
+  return `hace ${Math.floor(min / 60)} h ${min % 60} min`
+}
+
+function fechaCorta(fecha) {
+  if (!fecha) return ''
+  return new Date(fecha).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+// 0 = lunes, igual que DisponibilidadMedico.dia_semana
+function diaHoy() {
+  return (new Date().getDay() + 6) % 7
+}
+
+function proximaGuardia(guardias) {
+  if (!guardias.length) return null
+  const ahora = new Date()
+  const hoy = diaHoy()
+  const hhmm = ahora.toTimeString().slice(0, 5)
+
+  const actual = guardias.find((g) => g.dia_semana === hoy && g.hora_inicio <= hhmm && hhmm <= g.hora_fin)
+  if (actual) return { enCurso: true, texto: `Hasta las ${actual.hora_fin}` }
+
+  for (let i = 0; i < 8; i += 1) {
+    const dia = (hoy + i) % 7
+    const delDia = guardias
+      .filter((g) => g.dia_semana === dia && (i > 0 || g.hora_inicio > hhmm))
+      .sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio))
+    if (delDia.length) {
+      const cuando = i === 0 ? 'Hoy' : i === 1 ? 'Mañana' : delDia[0].dia_nombre
+      return { enCurso: false, texto: `${cuando}, ${delDia[0].hora_inicio}` }
+    }
+  }
+  return null
+}
+
+function nombrePaciente(s) {
+  return s.paciente_nombre || s.nombre_invitado || 'Paciente sin nombre'
+}
+
 export default function PortalMedico() {
   const { usuario } = useAuth()
   const navigate = useNavigate()
 
-  // Datos del médico y guardia
-  const [disponibilidad, setDisponibilidad] = useState('DISPONIBLE')
+  const [perfil, setPerfil] = useState(null)
+  const [disponibilidad, setDisponibilidad] = useState(null)
   const [cambiandoEstado, setCambiandoEstado] = useState(false)
+  const [cola, setCola] = useState([])
   const [atendidosHoy, setAtendidosHoy] = useState(0)
-  const [colaPacientes, setColaPacientes] = useState([])
-  const [cargandoCola, setCargandoCola] = useState(true)
+  const [ultimas, setUltimas] = useState([])
+  const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(null)
   const [iniciandoId, setIniciandoId] = useState(null)
 
-  // Cargar disponibilidad y guardias
-  const cargarDisponibilidad = useCallback(async () => {
+  const cargarPerfil = useCallback(async () => {
     try {
       const data = await obtenerMiDisponibilidad()
-      if (data?.disponibilidad_actual) {
-        setDisponibilidad(data.disponibilidad_actual)
-      }
-    } catch {
-      // Ignorar fallback
+      setPerfil(data)
+      setDisponibilidad(data.disponibilidad_actual)
+    } catch (err) {
+      setError(err.message)
     }
   }, [])
 
-  // Cargar cola de derivados y resumen
   const cargarCola = useCallback(async (silencioso = false) => {
-    if (!silencioso) setCargandoCola(true)
+    if (!silencioso) setCargando(true)
     try {
-      const data = await obtenerColaMedico('derivado,en_atencion')
-      setColaPacientes(data.solicitudes || [])
-      setAtendidosHoy(data.atendidos_hoy || 0)
+      const [activos, cerrados] = await Promise.all([
+        obtenerColaMedico('derivado,en_atencion'),
+        obtenerColaMedico('atendido'),
+      ])
+      setCola(activos.solicitudes || [])
+      setAtendidosHoy(activos.atendidos_hoy || 0)
+      setUltimas(
+        (cerrados.solicitudes || [])
+          .sort((a, b) => new Date(b.atendido_en) - new Date(a.atendido_en))
+          .slice(0, 6)
+      )
       setError(null)
     } catch (err) {
-      if (!silencioso) {
-        setError('No se pudo sincronizar la cola de derivados.')
-      }
+      if (!silencioso) setError(err.message || 'No se pudo cargar la cola de pacientes.')
     } finally {
-      if (!silencioso) setCargandoCola(false)
+      if (!silencioso) setCargando(false)
     }
   }, [])
 
   useEffect(() => {
-    cargarDisponibilidad()
+    cargarPerfil()
     cargarCola()
+    const t = setInterval(() => cargarCola(true), 6000)
+    return () => clearInterval(t)
+  }, [cargarPerfil, cargarCola])
 
-    const interval = setInterval(() => {
-      cargarCola(true)
-    }, 6000)
-
-    return () => clearInterval(interval)
-  }, [cargarDisponibilidad, cargarCola])
-
-  // Cambio de disponibilidad
-  const handleCambiarDisponibilidad = async (nuevoEstado) => {
-    if (cambiandoEstado || nuevoEstado === disponibilidad) return
+  const cambiarDisponibilidad = async (estado) => {
+    if (cambiandoEstado || estado === disponibilidad) return
+    const anterior = disponibilidad
+    setDisponibilidad(estado)
     setCambiandoEstado(true)
     try {
-      const res = await actualizarMiDisponibilidad(nuevoEstado)
+      const res = await actualizarMiDisponibilidad(estado)
       setDisponibilidad(res.disponibilidad_actual)
     } catch (err) {
-      setError(err.message || 'Error al actualizar disponibilidad.')
+      setDisponibilidad(anterior)
+      setError(err.message || 'No se pudo actualizar tu estado.')
     } finally {
       setCambiandoEstado(false)
     }
   }
 
-  // Llamar paciente / Iniciar atención
-  const handleIniciarAtencion = async (solicitudId) => {
-    setIniciandoId(solicitudId)
+  const llamarPaciente = async (id) => {
+    setIniciandoId(id)
     try {
-      await iniciarAtencion(solicitudId)
+      await iniciarAtencion(id)
       setDisponibilidad('EN_ATENCION')
-      navigate(`/portal-medico/atencion/${solicitudId}`)
+      navigate(`/portal-medico/atencion/${id}`)
     } catch (err) {
-      setError(err.message || 'Error al iniciar la atención.')
-    } finally {
+      setError(err.message || 'No se pudo iniciar la atención.')
       setIniciandoId(null)
     }
   }
 
-  // Formato de tiempo relativo
-  const tiempoRelativo = (fechaStr) => {
-    if (!fechaStr) return ''
-    const min = Math.floor((new Date() - new Date(fechaStr)) / 60000)
-    if (min < 1) return 'Hace instantes'
-    if (min === 1) return 'Hace 1 min'
-    if (min < 60) return `Hace ${min} min`
-    const horas = Math.floor(min / 60)
-    return `Hace ${horas} h ${min % 60} min`
-  }
+  const colaOrdenada = useMemo(
+    () =>
+      [...cola].sort(
+        (a, b) =>
+          (a.estado === 'en_atencion' ? -1 : 0) - (b.estado === 'en_atencion' ? -1 : 0) ||
+          (ORDEN_PRIORIDAD[a.prioridad] ?? 9) - (ORDEN_PRIORIDAD[b.prioridad] ?? 9) ||
+          new Date(a.fecha_derivacion || a.creado_en) - new Date(b.fecha_derivacion || b.creado_en)
+      ),
+    [cola]
+  )
+
+  const guardias = perfil?.guardias || []
+  const proxima = proximaGuardia(guardias)
+  const enConsulta = cola.filter((s) => s.estado === 'en_atencion').length
+  const centroNombre = usuario?.centro_nombre || guardias[0]?.centro_nombre
 
   return (
-    <div className="login-viewport" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="ui-shell">
       <Navbar />
 
-      <main style={{ maxWidth: '1240px', width: '100%', margin: '1.5rem auto', padding: '0 1rem', flex: 1 }}>
-        {/* Banner Superior: Bienvenida al Doctor y Control de Guardia */}
-        <div style={{
-          background: 'rgba(30, 41, 59, 0.7)',
-          border: '1px solid rgba(51, 65, 85, 0.6)',
-          borderRadius: '14px',
-          padding: '1.5rem',
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '1.5rem',
-          marginBottom: '1.75rem'
-        }}>
+      <main className="ui-page">
+        <div className="ui-pagehead">
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.35rem' }}>
-              <span style={{ fontSize: '1.5rem' }}>👨‍⚕️</span>
-              <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f8fafc', margin: 0 }}>
-                {usuario?.medico_nombre || usuario?.nombre || 'Portal Médico'}
-              </h1>
-              <span className="navbar-role-badge navbar-role-badge--medico" style={{ fontSize: '0.75rem' }}>
-                Especialista
-              </span>
-            </div>
-            <p style={{ margin: 0, fontSize: '0.88rem', color: '#94a3b8' }}>
-              Gestión de disponibilidad y llamada a consulta de pacientes de emergencia.
-            </p>
-          </div>
-
-          {/* Selector de Disponibilidad en Tiempo Real */}
-          <div style={{
-            background: 'rgba(15, 23, 42, 0.75)',
-            border: '1px solid rgba(51, 65, 85, 0.6)',
-            borderRadius: '10px',
-            padding: '0.6rem 0.85rem',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.75rem'
-          }}>
-            <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>
-              Estado:
-            </span>
-
-            <div style={{ display: 'flex', gap: '0.35rem' }}>
-              <button
-                type="button"
-                disabled={cambiandoEstado}
-                onClick={() => handleCambiarDisponibilidad('DISPONIBLE')}
-                style={{
-                  background: disponibilidad === 'DISPONIBLE' ? 'rgba(16, 185, 129, 0.25)' : 'transparent',
-                  color: disponibilidad === 'DISPONIBLE' ? '#34d399' : '#94a3b8',
-                  border: '1px solid',
-                  borderColor: disponibilidad === 'DISPONIBLE' ? 'rgba(16, 185, 129, 0.6)' : 'rgba(51, 65, 85, 0.4)',
-                  borderRadius: '6px',
-                  padding: '0.4rem 0.7rem',
-                  fontSize: '0.82rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.35rem'
-                }}
-              >
-                <span>🟢</span>
-                <span>Disponible</span>
-              </button>
-
-              <button
-                type="button"
-                disabled={cambiandoEstado}
-                onClick={() => handleCambiarDisponibilidad('EN_ATENCION')}
-                style={{
-                  background: disponibilidad === 'EN_ATENCION' ? 'rgba(234, 179, 8, 0.25)' : 'transparent',
-                  color: disponibilidad === 'EN_ATENCION' ? '#facc15' : '#94a3b8',
-                  border: '1px solid',
-                  borderColor: disponibilidad === 'EN_ATENCION' ? 'rgba(234, 179, 8, 0.6)' : 'rgba(51, 65, 85, 0.4)',
-                  borderRadius: '6px',
-                  padding: '0.4rem 0.7rem',
-                  fontSize: '0.82rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.35rem'
-                }}
-              >
-                <span>🟡</span>
-                <span>En Consulta</span>
-              </button>
-
-              <button
-                type="button"
-                disabled={cambiandoEstado}
-                onClick={() => handleCambiarDisponibilidad('FUERA_DE_GUARDIA')}
-                style={{
-                  background: disponibilidad === 'FUERA_DE_GUARDIA' ? 'rgba(239, 68, 68, 0.25)' : 'transparent',
-                  color: disponibilidad === 'FUERA_DE_GUARDIA' ? '#f87171' : '#94a3b8',
-                  border: '1px solid',
-                  borderColor: disponibilidad === 'FUERA_DE_GUARDIA' ? 'rgba(239, 68, 68, 0.6)' : 'rgba(51, 65, 85, 0.4)',
-                  borderRadius: '6px',
-                  padding: '0.4rem 0.7rem',
-                  fontSize: '0.82rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.35rem'
-                }}
-              >
-                <span>🔴</span>
-                <span>Fin Guardia</span>
-              </button>
+            <h1 className="ui-pagehead__title">{perfil?.nombre || usuario?.medico_nombre || usuario?.nombre || 'Mi guardia'}</h1>
+            <div className="ui-pagehead__meta">
+              {usuario?.medico_especialidad && <span><Stethoscope size={15} />{usuario.medico_especialidad}</span>}
+              {perfil?.matricula && <span className="ui-mono"><IdentificationCard size={15} />{perfil.matricula}</span>}
+              {centroNombre && <span><Buildings size={15} />{centroNombre}</span>}
             </div>
           </div>
-        </div>
-
-        {/* Tarjetas de Resumen de Guardia */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.75rem' }}>
-          <div style={{ background: 'rgba(30, 41, 59, 0.6)', border: '1px solid rgba(51, 65, 85, 0.5)', borderRadius: '10px', padding: '1rem 1.25rem' }}>
-            <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>
-              Pacientes Atendidos Hoy
-            </span>
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: '#38bdf8', marginTop: '0.25rem' }}>
-              {atendidosHoy}
+          <div className="ui-pagehead__actions">
+            <div className="ui-segmented" role="group" aria-label="Mi disponibilidad">
+              {ESTADOS.map((e) => (
+                <button
+                  key={e.id}
+                  type="button"
+                  className={disponibilidad === e.id ? 'is-active' : ''}
+                  onClick={() => cambiarDisponibilidad(e.id)}
+                  disabled={cambiandoEstado}
+                  aria-pressed={disponibilidad === e.id}
+                >
+                  <span className={`ui-dot ${e.dot}`} />
+                  {e.label}
+                </button>
+              ))}
             </div>
-            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Turno y guardia médica actual</span>
-          </div>
-
-          <div style={{ background: 'rgba(30, 41, 59, 0.6)', border: '1px solid rgba(51, 65, 85, 0.5)', borderRadius: '10px', padding: '1rem 1.25rem' }}>
-            <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>
-              En Espera para Consulta
-            </span>
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: colaPacientes.length > 0 ? '#f59e0b' : '#34d399', marginTop: '0.25rem' }}>
-              {colaPacientes.length}
-            </div>
-            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Derivados pendientes de llamado</span>
-          </div>
-
-          <div style={{ background: 'rgba(30, 41, 59, 0.6)', border: '1px solid rgba(51, 65, 85, 0.5)', borderRadius: '10px', padding: '1rem 1.25rem' }}>
-            <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>
-              Estado del Especialista
-            </span>
-            <div style={{ fontSize: '1.15rem', fontWeight: 700, color: disponibilidad === 'DISPONIBLE' ? '#34d399' : disponibilidad === 'EN_ATENCION' ? '#facc15' : '#f87171', marginTop: '0.5rem' }}>
-              {disponibilidad === 'DISPONIBLE' ? '🟢 Listo para atender' : disponibilidad === 'EN_ATENCION' ? '🟡 Ocupado en atención' : '🔴 No disponible'}
-            </div>
-            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Sincronizado en tiempo real con Redis</span>
           </div>
         </div>
 
         {error && (
-          <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5', padding: '0.75rem 1rem', borderRadius: '8px', marginBottom: '1.25rem', fontSize: '0.88rem' }}>
-            {error}
+          <div className="ui-alert" role="alert">
+            <WarningCircle size={18} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>{error}</span>
           </div>
         )}
 
-        {/* Sección: Cola de Pacientes Derivados */}
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#f8fafc', margin: 0 }}>
-              Pacientes Asignados a Consulta
-            </h2>
-            <button
-              onClick={() => cargarCola(false)}
-              className="btn-navbar-logout"
-              style={{ color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.4)' }}
-            >
-              🔄 Refrescar Cola
-            </button>
+        <section className="ui-stats" aria-label="Resumen de mi guardia">
+          <div className="ui-stat">
+            <div className="ui-stat__label">Derivados esperando</div>
+            <div className={`ui-stat__value${cola.length - enConsulta ? ' ui-stat__value--accent' : ''}`}>
+              {cargando ? '-' : cola.length - enConsulta}
+            </div>
+            <div className="ui-stat__hint">
+              {cola.some((s) => s.prioridad === 'urgente' && s.estado === 'derivado') ? 'Hay pacientes urgentes' : 'Ordenados por prioridad'}
+            </div>
           </div>
-
-          {cargandoCola && colaPacientes.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem 0', color: '#94a3b8' }}>
-              <div className="spinner" style={{ margin: '0 auto 1rem', width: '32px', height: '32px', border: '3px solid rgba(255,255,255,0.2)', borderTopColor: '#38bdf8', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-              <p>Cargando pacientes asignados...</p>
+          <div className="ui-stat">
+            <div className="ui-stat__label">En consulta</div>
+            <div className="ui-stat__value">{cargando ? '-' : enConsulta}</div>
+          </div>
+          <div className="ui-stat">
+            <div className="ui-stat__label">Atendidos hoy</div>
+            <div className="ui-stat__value">{cargando ? '-' : atendidosHoy}</div>
+          </div>
+          <div className="ui-stat">
+            <div className="ui-stat__label">{proxima?.enCurso ? 'De guardia' : 'Próxima guardia'}</div>
+            <div className="ui-stat__value" style={{ fontSize: '1.25rem', marginTop: 12, fontFamily: 'var(--font-ui)', letterSpacing: '-0.02em', fontWeight: 600 }}>
+              {proxima ? proxima.texto : 'Sin guardias'}
             </div>
-          ) : colaPacientes.length === 0 ? (
-            <div style={{
-              background: 'rgba(30, 41, 59, 0.4)',
-              border: '1px dashed rgba(51, 65, 85, 0.6)',
-              borderRadius: '12px',
-              padding: '3rem 1.5rem',
-              textAlign: 'center',
-              color: '#94a3b8'
-            }}>
-              <div style={{ fontSize: '3rem', marginBottom: '0.75rem' }}>☕</div>
-              <h3 style={{ color: '#f8fafc', fontSize: '1.2rem', marginBottom: '0.5rem' }}>
-                No tenés pacientes derivados en espera
-              </h3>
-              <p style={{ maxWidth: '420px', margin: '0 auto', fontSize: '0.9rem' }}>
-                Cuando el operador del centro derive una emergencia a tu especialidad, aparecerá inmediatamente aquí.
-              </p>
+          </div>
+        </section>
+
+        <div className="ui-split">
+          <section className="ui-card" aria-label="Pacientes derivados">
+            <div className="ui-card__head">
+              <h2 className="ui-h2">Pacientes derivados</h2>
+              <span className="ui-muted" style={{ fontSize: '0.82rem' }}>Se actualiza solo</span>
             </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {colaPacientes.map((s) => {
-                const esInvitado = !s.usuario_id
-                const enConsulta = s.estado === 'en_atencion'
 
-                // Colores según prioridad
-                const colorPrioridad =
-                  s.prioridad === 'urgente' ? '#ef4444' : s.prioridad === 'alta' ? '#f97316' : s.prioridad === 'media' ? '#f59e0b' : '#10b981'
-
-                return (
-                  <div
-                    key={s.id}
-                    style={{
-                      background: enConsulta ? 'rgba(56, 189, 248, 0.08)' : 'rgba(30, 41, 59, 0.7)',
-                      border: '1px solid',
-                      borderColor: enConsulta ? 'rgba(56, 189, 248, 0.4)' : 'rgba(51, 65, 85, 0.6)',
-                      borderRadius: '12px',
-                      padding: '1.25rem 1.5rem',
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '1.25rem',
-                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.2)'
-                    }}
-                  >
-                    {/* Datos del Paciente y Motivo */}
-                    <div style={{ flex: '1 1 320px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
-                        <span style={{ fontWeight: 800, color: '#f8fafc', fontSize: '1.1rem' }}>
-                          #{s.id} · {esInvitado ? (s.nombre_invitado || 'Paciente Invitado') : 'Paciente Registrado'}
-                        </span>
-                        <span style={{
-                          background: `${colorPrioridad}22`,
-                          color: colorPrioridad,
-                          border: `1px solid ${colorPrioridad}44`,
-                          padding: '0.15rem 0.5rem',
-                          borderRadius: '4px',
-                          fontSize: '0.75rem',
-                          fontWeight: 700,
-                          textTransform: 'uppercase'
-                        }}>
-                          {s.prioridad || 'Alta'}
-                        </span>
-                        {enConsulta && (
-                          <span style={{ background: 'rgba(234, 179, 8, 0.2)', color: '#facc15', padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700 }}>
-                            🟡 En Atención
-                          </span>
+            {cargando && cola.length === 0 ? (
+              <div className="ui-rows" aria-busy="true">
+                {[0, 1].map((i) => (
+                  <div key={i} className="ui-skel-row">
+                    <div className="ui-skeleton" style={{ height: 16, width: '45%' }} />
+                    <div className="ui-skeleton" style={{ height: 14, width: '90%' }} />
+                    <div className="ui-skeleton" style={{ height: 40, width: '100%' }} />
+                  </div>
+                ))}
+              </div>
+            ) : colaOrdenada.length === 0 ? (
+              <div className="ui-empty">
+                <div className="ui-empty__icon"><Stethoscope size={22} /></div>
+                <p className="ui-empty__title">No tenés pacientes derivados</p>
+                <p className="ui-empty__text">Cuando la administración del centro te derive a alguien, aparece acá con las notas de triage.</p>
+              </div>
+            ) : (
+              <div className="ui-rows">
+                {colaOrdenada.map((s) => {
+                  const enCurso = s.estado === 'en_atencion'
+                  return (
+                    <article key={s.id} className={`ui-row ui-row--prio ui-row--prio-${s.prioridad}`}>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="ui-row__title">
+                          {nombrePaciente(s)}
+                          {enCurso && <span className="ui-chip ui-chip--ok">En consulta</span>}
+                          {s.prioridad === 'urgente' && <span className="ui-chip ui-chip--alert">Urgente</span>}
+                          {s.prioridad === 'alta' && <span className="ui-chip ui-chip--warn">Prioridad alta</span>}
+                        </div>
+                        <p className="ui-row__body">{s.motivo || 'Sin motivo informado.'}</p>
+                        {s.observaciones_triage && (
+                          <div className="ui-quote" style={{ marginTop: 10 }}>
+                            <strong style={{ color: 'var(--ink)' }}>Triage: </strong>{s.observaciones_triage}
+                          </div>
+                        )}
+                        <div className="ui-row__meta">
+                          <span><Clock size={14} />Derivado {haceCuanto(s.fecha_derivacion || s.creado_en)}</span>
+                          <span>{s.usuario_id ? 'Con historial en la red' : 'Sin cuenta'}</span>
+                        </div>
+                      </div>
+                      <div className="ui-row__aside">
+                        {enCurso ? (
+                          <button type="button" className="ui-btn ui-btn--dark" onClick={() => navigate(`/portal-medico/atencion/${s.id}`)}>
+                            Continuar
+                            <ArrowRight size={16} />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="ui-btn ui-btn--primary"
+                            disabled={iniciandoId === s.id}
+                            onClick={() => llamarPaciente(s.id)}
+                          >
+                            <Megaphone size={16} />
+                            {iniciandoId === s.id ? 'Llamando...' : 'Llamar'}
+                          </button>
                         )}
                       </div>
+                    </article>
+                  )
+                })}
+              </div>
+            )}
+          </section>
 
-                      <div style={{ fontSize: '0.88rem', color: '#cbd5e1', marginBottom: '0.4rem' }}>
-                        <strong style={{ color: '#94a3b8' }}>Motivo: </strong>
-                        {s.motivo || 'Sin descripción aportada.'}
-                      </div>
-
-                      {s.observaciones_triage && (
-                        <div style={{ fontSize: '0.82rem', color: '#fcd34d', background: 'rgba(245, 158, 11, 0.1)', padding: '0.35rem 0.65rem', borderRadius: '6px', marginBottom: '0.4rem' }}>
-                          📝 <strong>Triage operador: </strong>{s.observaciones_triage}
-                        </div>
-                      )}
-
-                      <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                        Derivado {tiempoRelativo(s.fecha_derivacion || s.creado_en)}
-                      </div>
+          <aside className="ui-card" aria-label="Últimas atenciones">
+            <div className="ui-card__head">
+              <h2 className="ui-h2">Últimas atenciones</h2>
+            </div>
+            {ultimas.length === 0 ? (
+              <div className="ui-empty">
+                <p className="ui-empty__text">Todavía no cerraste atenciones.</p>
+              </div>
+            ) : (
+              <div className="ui-rows">
+                {ultimas.map((s) => (
+                  <div key={s.id} style={{ padding: '14px 20px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                      <span className="ui-person__name">{nombrePaciente(s)}</span>
+                      <span className="ui-mono ui-muted" style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{fechaCorta(s.atendido_en)}</span>
                     </div>
+                    <p style={{ fontSize: '0.86rem', color: 'var(--ink-2)', marginTop: 4, lineHeight: 1.45 }}>{s.diagnostico}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </aside>
+        </div>
 
-                    {/* Botón de Llamar Paciente / Iniciar Atención */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      {enConsulta ? (
-                        <button
-                          onClick={() => navigate(`/portal-medico/atencion/${s.id}`)}
-                          style={{
-                            background: 'var(--primary, #0284c7)',
-                            color: '#ffffff',
-                            border: 'none',
-                            borderRadius: '8px',
-                            padding: '0.75rem 1.25rem',
-                            fontSize: '0.9rem',
-                            fontWeight: 700,
-                            cursor: 'pointer'
-                          }}
-                        >
-                          Continuar Consulta ➔
-                        </button>
-                      ) : (
-                        <button
-                          disabled={iniciandoId === s.id}
-                          onClick={() => handleIniciarAtencion(s.id)}
-                          style={{
-                            background: '#10b981',
-                            color: '#ffffff',
-                            border: 'none',
-                            borderRadius: '8px',
-                            padding: '0.75rem 1.25rem',
-                            fontSize: '0.9rem',
-                            fontWeight: 700,
-                            cursor: iniciandoId === s.id ? 'not-allowed' : 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            opacity: iniciandoId === s.id ? 0.7 : 1
-                          }}
-                        >
-                          <span>📢</span>
-                          <span>{iniciandoId === s.id ? 'Llamando...' : 'Llamar Paciente / Iniciar'}</span>
-                        </button>
-                      )}
-                    </div>
+        <section className="ui-card" style={{ marginTop: 20 }} aria-label="Mis guardias">
+          <div className="ui-card__head">
+            <h2 className="ui-h2">Mis guardias de la semana</h2>
+            <span className="ui-muted" style={{ fontSize: '0.82rem', display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+              <CalendarBlank size={15} />{centroNombre}
+            </span>
+          </div>
+          <div className="ui-card__pad">
+            <div className="ui-week">
+              {DIAS.map((dia, i) => {
+                const delDia = guardias.filter((g) => g.dia_semana === i)
+                return (
+                  <div key={dia} className={`ui-week__day${i === diaHoy() ? ' is-today' : ''}`}>
+                    <div className="ui-week__name">{i === diaHoy() ? `${dia}, hoy` : dia}</div>
+                    {delDia.length === 0 ? (
+                      <div className="ui-week__none">Libre</div>
+                    ) : (
+                      delDia.map((g) => (
+                        <div key={g.id} className="ui-week__slot">{g.hora_inicio} a {g.hora_fin}</div>
+                      ))
+                    )}
                   </div>
                 )
               })}
             </div>
-          )}
-        </div>
+          </div>
+        </section>
       </main>
     </div>
   )
