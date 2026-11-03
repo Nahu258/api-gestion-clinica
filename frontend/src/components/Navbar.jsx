@@ -1,8 +1,25 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
+import {
+  FirstAid,
+  MapTrifold,
+  SquaresFour,
+  Stethoscope,
+  ClipboardText,
+  SignOut,
+  SignIn,
+} from '@phosphor-icons/react'
 import { useAuth } from '../context/AuthContext.jsx'
+import { etiquetaRol, iniciales } from '../utils/roles.js'
+
+const LINKS_POR_ROL = {
+  ADMIN: [{ to: '/panel-centro', label: 'Panel de centro', icon: SquaresFour }],
+  OPERADOR_CENTRO: [{ to: '/panel-centro', label: 'Panel de centro', icon: SquaresFour }],
+  MEDICO: [{ to: '/portal-medico', label: 'Mi guardia', icon: Stethoscope }],
+  PACIENTE: [{ to: '/mi-historial', label: 'Mi historial', icon: ClipboardText }],
+}
 
 export default function Navbar() {
-  const { usuario, rol, esInvitado, estaAutenticado, logout } = useAuth()
+  const { usuario, rol, estaAutenticado, logout } = useAuth()
   const navigate = useNavigate()
 
   const handleCerrarSesion = () => {
@@ -10,94 +27,56 @@ export default function Navbar() {
     navigate('/ingreso', { replace: true })
   }
 
-  // Identificador visual del rol
-  const renderBadgeRol = () => {
-    if (!estaAutenticado) return null
+  const links = [
+    { to: '/mapa', label: 'Mapa de guardias', icon: MapTrifold },
+    ...(LINKS_POR_ROL[rol] || []),
+  ]
 
-    if (rol === 'MEDICO') {
-      return (
-        <span className="navbar-role-badge navbar-role-badge--medico" title="Médico Especialista">
-          👨‍⚕️ {usuario?.nombre || 'Dr. Especialista'}
-        </span>
-      )
-    }
-    if (rol === 'OPERADOR_CENTRO') {
-      return (
-        <span className="navbar-role-badge navbar-role-badge--operador" title="Operador de Centro de Salud">
-          🏥 {usuario?.centro_nombre ? `Operador ${usuario.centro_nombre}` : 'Operador Centro'}
-        </span>
-      )
-    }
-    if (rol === 'ADMIN') {
-      return (
-        <span className="navbar-role-badge navbar-role-badge--admin" title="Administrador de Sistema">
-          ⚙️ Admin ({usuario?.nombre || 'Sistema'})
-        </span>
-      )
-    }
-    if (esInvitado || rol === 'INVITADO') {
-      return (
-        <span className="navbar-role-badge navbar-role-badge--invitado" title="Sesión Temporal de Emergencia">
-          ⚡ Invitado
-        </span>
-      )
-    }
-    // Paciente registrado
-    return (
-      <span className="navbar-role-badge navbar-role-badge--paciente" title="Paciente Registrado">
-        👤 {usuario?.nombre || 'Mi Cuenta'}
-      </span>
-    )
-  }
+  const nombre = usuario?.medico_nombre || usuario?.nombre || 'Invitado'
+  const subtitulo = usuario?.centro_nombre
+    ? `${etiquetaRol(rol)}, ${usuario.centro_nombre}`
+    : etiquetaRol(rol)
 
   return (
-    <header className="app-navbar">
-      <div className="app-navbar-inner">
-        {/* Brand / Logo */}
-        <Link to="/" className="app-navbar-brand">
-          <span className="brand-icon">🚨</span>
-          <span className="brand-name">EmergenciaYA</span>
+    <header className="ui-topbar">
+      <div className="ui-topbar__inner">
+        <Link to="/" className="ui-brand">
+          <span className="ui-brand__mark" aria-hidden="true">
+            <FirstAid size={17} weight="bold" />
+          </span>
+          EmergenciaYA
         </Link>
 
-        {/* Links principales según rol */}
-        <nav className="app-navbar-nav">
-          <Link to="/mapa" className="nav-link">
-            🗺️ Centros de Guardia
-          </Link>
-
-          {rol === 'MEDICO' && (
-            <Link to="/portal-medico" className="nav-link nav-link--highlight">
-              🩺 Portal Médico
-            </Link>
-          )}
-
-          {rol === 'OPERADOR_CENTRO' && (
-            <Link to="/panel-centro" className="nav-link nav-link--highlight">
-              📋 Panel de Centro
-            </Link>
-          )}
-
-          {rol === 'PACIENTE' && (
-            <Link to="/mi-historial" className="nav-link">
-              📂 Mi Historial
-            </Link>
-          )}
+        <nav className="ui-nav" aria-label="Principal">
+          {links.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={to === '/portal-medico'}
+              className={({ isActive }) => `ui-nav__link${isActive ? ' is-active' : ''}`}
+            >
+              <Icon size={18} />
+              <span className="ui-nav__label">{label}</span>
+            </NavLink>
+          ))}
         </nav>
 
-        {/* Bloque de Usuario y Sesión */}
-        <div className="app-navbar-actions">
-          {renderBadgeRol()}
-
+        <div className="ui-session">
           {estaAutenticado ? (
-            <button
-              onClick={handleCerrarSesion}
-              className="btn-navbar-logout"
-              title="Cerrar sesión"
-            >
-              Salir
-            </button>
+            <>
+              <div className="ui-session__who">
+                <span className="ui-session__name">{nombre}</span>
+                <span className="ui-session__role">{subtitulo}</span>
+              </div>
+              <span className="ui-initials" aria-hidden="true">{iniciales(nombre)}</span>
+              <button type="button" className="ui-btn ui-btn--quiet ui-btn--sm" onClick={handleCerrarSesion}>
+                <SignOut size={16} />
+                Salir
+              </button>
+            </>
           ) : (
-            <Link to="/ingreso" className="btn-navbar-login">
+            <Link to="/ingreso" className="ui-btn ui-btn--sm">
+              <SignIn size={16} />
               Ingresar
             </Link>
           )}
