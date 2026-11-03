@@ -1,7 +1,7 @@
 /**
  * SeguimientoSolicitud.jsx - Centro de Seguimiento y Despacho de Guardia en Vivo.
  *
- * Épica 4 (AE4-10, issue #19) rediseñado bajo los más altos estándares visuales:
+ * Épica 4 (AE4-10, issue #19):
  *   - Polling cada 10s con indicador de latido activo en tiempo real.
  *   - Transición a 'aceptado': animación de confirmación médica + audio Web Audio API + vibración háptica.
  *   - Stepper de progreso clínico con barra continua e íconos de estado.
@@ -12,6 +12,24 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
+import {
+  ArrowLeft,
+  Check,
+  CheckCircle,
+  ClipboardText,
+  ClockCounterClockwise,
+  FirstAidKit,
+  HourglassMedium,
+  Hospital,
+  LockSimple,
+  MagnifyingGlass,
+  MapPin,
+  MapTrifold,
+  PaperPlaneTilt,
+  Phone,
+  Stethoscope,
+  XCircle,
+} from '@phosphor-icons/react'
 
 import {
   obtenerSolicitud,
@@ -76,10 +94,10 @@ const ESTADOS = {
 }
 
 const PASOS_STEPPER = [
-  { key: ESTADOS.PENDIENTE,   label: 'Aviso enviado',       icon: '📨' },
-  { key: ESTADOS.ACEPTADO,    label: 'Guardia alertada',   icon: '🩺' },
-  { key: ESTADOS.EN_ATENCION, label: 'En triage/atención', icon: '🏥' },
-  { key: ESTADOS.ATENDIDO,    label: 'Atención completada',icon: '✅' },
+  { key: ESTADOS.PENDIENTE,   label: 'Aviso enviado',       Icon: PaperPlaneTilt },
+  { key: ESTADOS.ACEPTADO,    label: 'Guardia alertada',    Icon: Stethoscope },
+  { key: ESTADOS.EN_ATENCION, label: 'En triage/atención',  Icon: Hospital },
+  { key: ESTADOS.ATENDIDO,    label: 'Atención completada', Icon: CheckCircle },
 ]
 
 export default function SeguimientoSolicitud() {
@@ -208,8 +226,8 @@ export default function SeguimientoSolicitud() {
         <div className="seguimiento-hub-card">
           <div className="seguimiento-loading-pulse">
             <span className="action-spinner action-spinner--red" aria-hidden="true" />
-            <h3>Conectando con la guardia médica...</h3>
-            <p>Sincronizando estado en vivo.</p>
+            <h3>Cargando tu aviso...</h3>
+            <p>Consultando el estado con el centro.</p>
           </div>
         </div>
       </div>
@@ -220,7 +238,7 @@ export default function SeguimientoSolicitud() {
     return (
       <div className="seguimiento-screen-layout">
         <div className="seguimiento-hub-card">
-          <span style={{ fontSize: '3rem' }}>🔍</span>
+          <MagnifyingGlass size={44} color="#64748b" />
           <h2>Sin aviso activo</h2>
           <p style={{ color: '#64748b' }}>
             {error || 'No tenés ningún aviso o solicitud de guardia activa en este momento.'}
@@ -246,12 +264,12 @@ export default function SeguimientoSolicitud() {
       {/* ── Topbar de navegación ── */}
       <header className="seguimiento-topbar">
         <Link to="/mapa" className="seguimiento-back-link">
-          <span aria-hidden="true">←</span>
+          <ArrowLeft size={16} aria-hidden="true" />
           <span>Volver al mapa</span>
         </Link>
         <span className="live-heartbeat-pill">
           <span className="pulse-green-dot" aria-hidden="true" />
-          <span>Canal de guardia activo</span>
+          <span>Seguimiento en vivo</span>
         </span>
       </header>
 
@@ -261,25 +279,25 @@ export default function SeguimientoSolicitud() {
           <div className="status-hero-banner">
             <div className={`status-radar-ring ${esAceptado ? 'status-radar-ring--success' : ''}`}>
               <span className="status-radar-icon">
-                {esAceptado && '✅'}
-                {estado === ESTADOS.PENDIENTE && '⏳'}
-                {esEnAtencion && '🩺'}
-                {esAtendido && '🎉'}
-                {esCancelado && '❌'}
+                {esAceptado && <CheckCircle size={34} weight="fill" />}
+                {estado === ESTADOS.PENDIENTE && <HourglassMedium size={34} />}
+                {esEnAtencion && <Stethoscope size={34} />}
+                {esAtendido && <FirstAidKit size={34} />}
+                {esCancelado && <XCircle size={34} />}
               </span>
             </div>
 
             <div className="status-hero-text">
               <span className="status-category-pill">
-                {esAceptado && 'Guardia Confirmada'}
-                {estado === ESTADOS.PENDIENTE && 'Aviso en Transmisión'}
-                {esEnAtencion && 'Atención Médica en Curso'}
-                {esAtendido && 'Guardia Finalizada'}
-                {esCancelado && 'Aviso Cancelado'}
+                {esAceptado && 'Guardia confirmada'}
+                {estado === ESTADOS.PENDIENTE && 'Esperando respuesta'}
+                {esEnAtencion && 'En atención'}
+                {esAtendido && 'Atención finalizada'}
+                {esCancelado && 'Aviso cancelado'}
               </span>
 
               <h1 className="status-headline">
-                {esAceptado && '¡El centro médico confirmó tu llegada!'}
+                {esAceptado && 'El centro confirmó tu llegada'}
                 {estado === ESTADOS.PENDIENTE && 'Aviso enviado al centro de salud'}
                 {esEnAtencion && 'Atención médica en curso'}
                 {esAtendido && 'Atención médica completada'}
@@ -318,7 +336,7 @@ export default function SeguimientoSolicitud() {
                       className={`stepper-node ${completado ? 'stepper-node--completed' : ''} ${activo ? 'stepper-node--active' : ''}`}
                     >
                       <div className="node-bubble">
-                        {completado ? '✓' : paso.icon}
+                        {completado ? <Check size={16} weight="bold" /> : <paso.Icon size={18} />}
                       </div>
                       <span className="node-caption">{paso.label}</span>
                     </div>
@@ -331,43 +349,43 @@ export default function SeguimientoSolicitud() {
           {/* ── Mensaje e Instrucciones Médicas ── */}
           <div className="triage-instruction-card">
             <h3 className="triage-instruction-title">
-              <span aria-hidden="true">📋</span>
-              <span>Instrucciones de recepción en guardia:</span>
+              <ClipboardText size={18} aria-hidden="true" />
+              <span>Qué hacer al llegar</span>
             </h3>
 
             {estado === ESTADOS.PENDIENTE && (
               <p className="triage-instruction-desc">
-                Tu aviso fue transmitido. Si te dirigís en vehículo, conducí con precaución. Al llegar, acercate a la mesa de triage e identificá tu nombre.
+                El centro recibió tu aviso. Si vas manejando, hacelo con precaución. Al llegar, acercate a la mesa de triage y decí tu nombre.
               </p>
             )}
 
             {esAceptado && (
               <p className="triage-instruction-desc">
-                <strong>El equipo de triage ya fue alertado.</strong> Tené a mano tu DNI o credencial de obra social si contás con ella. Ingresá por el acceso principal de guardia.
+                <strong>El equipo de triage ya sabe que vas.</strong> Tené a mano tu DNI y la credencial de la obra social si tenés. Entrá por el acceso de guardia.
               </p>
             )}
 
             {esEnAtencion && (
               <p className="triage-instruction-desc">
-                El equipo médico está asistiendo tu caso. Por favor seguí las indicaciones de los profesionales de la salud.
+                Un médico está atendiendo tu caso. Seguí las indicaciones del equipo.
               </p>
             )}
 
             {esAtendido && (
               <p className="triage-instruction-desc">
-                La consulta ha concluido exitosamente. Te deseamos una pronta recuperación.
+                La consulta terminó. Si tenés cuenta, el diagnóstico y las indicaciones quedan en tu historial.
               </p>
             )}
 
             {esCancelado && (
               <p className="triage-instruction-desc">
-                El aviso de atención fue cancelado. Si aún requerís asistencia urgente, podés buscar otro centro disponible en el mapa o llamar al 107.
+                Cancelaste el aviso. Si todavía necesitás atención, buscá otro centro en el mapa o llamá al 107.
               </p>
             )}
 
             {solicitud.centro_direccion && (
               <div className="destination-address-chip">
-                <span>📍 Dirección de destino:</span>
+                <span><MapPin size={14} /> Dirección:</span>
                 <strong>{solicitud.centro_direccion}</strong>
               </div>
             )}
@@ -377,7 +395,7 @@ export default function SeguimientoSolicitud() {
           {!esAtendido && !esCancelado && (
             <div className="live-heartbeat-box">
               <span className="pulse-green-dot" aria-hidden="true" />
-              <span>Canal seguro con el centro médico · Actualización cada 10s</span>
+              <span>El estado se actualiza cada 10 segundos</span>
             </div>
           )}
 
@@ -386,21 +404,20 @@ export default function SeguimientoSolicitud() {
             <div
               className="guest-conversion-banner"
               style={{
-                background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95))',
-                border: '1px solid rgba(56, 189, 248, 0.4)',
-                borderRadius: '12px',
+                background: 'var(--surface)',
+                border: '1px solid var(--line)',
+                borderRadius: '10px',
                 padding: '1.25rem',
                 margin: '1.25rem 0',
                 textAlign: 'center',
-                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)',
               }}
             >
-              <span style={{ fontSize: '1.75rem', display: 'block', marginBottom: '0.35rem' }}>📂</span>
-              <h4 style={{ color: '#f8fafc', fontWeight: 800, fontSize: '1.05rem', margin: '0 0 0.35rem' }}>
+              <ClockCounterClockwise size={26} color="var(--ink-2)" style={{ display: 'block', margin: '0 auto 0.35rem' }} />
+              <h4 style={{ color: 'var(--ink)', fontWeight: 650, fontSize: '1.02rem', margin: '0 0 0.35rem' }}>
                 ¿Querés guardar esta atención en tu ficha clínica?
               </h4>
-              <p style={{ color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.4, margin: '0 0 1rem' }}>
-                Creá tu cuenta o ingresá con Google para no perder tu historial, diagnósticos e indicaciones médicas recibidas.
+              <p style={{ color: 'var(--ink-3)', fontSize: '0.86rem', lineHeight: 1.45, margin: '0 0 1rem' }}>
+                Ingresá con tu cuenta y esta atención queda en tu historial, con el diagnóstico y las indicaciones.
               </p>
               <div style={{ display: 'flex', justifyContent: 'center' }}>
                 <Link
@@ -408,7 +425,8 @@ export default function SeguimientoSolicitud() {
                   className="btn btn--hero-primary"
                   style={{ fontSize: '0.88rem', padding: '0.65rem 1.25rem', textDecoration: 'none' }}
                 >
-                  <span>🔒 Vincular y Guardar mi Historial</span>
+                  <LockSimple size={16} />
+                  <span>Guardar en mi historial</span>
                 </Link>
               </div>
             </div>
@@ -422,12 +440,14 @@ export default function SeguimientoSolicitud() {
                 className="btn btn--action-phone"
                 title={`Llamar al centro médico: ${solicitud.centro_telefono}`}
               >
-                <span>📞 Llamar al centro médico ({solicitud.centro_telefono})</span>
+                <Phone size={18} />
+                <span>Llamar al centro ({solicitud.centro_telefono})</span>
               </a>
             )}
 
             <Link to="/mapa" className="btn btn--hero-secondary">
-              <span>🗺️ Ver otros centros en el mapa</span>
+              <MapTrifold size={18} />
+              <span>Ver otros centros</span>
             </Link>
 
             {(estado === ESTADOS.PENDIENTE || estado === ESTADOS.ACEPTADO) && (
@@ -454,7 +474,7 @@ export default function SeguimientoSolicitud() {
         >
           <div className="cancel-confirm-dialog" onClick={(e) => e.stopPropagation()}>
             <h3>¿Querés cancelar este aviso de guardia?</h3>
-            <p>Si cancelás, el centro médico liberará el turno previo de triage.</p>
+            <p>Si cancelás, el centro deja de esperarte.</p>
             <div className="cancel-dialog-actions">
               <button
                 type="button"

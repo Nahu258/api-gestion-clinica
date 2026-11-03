@@ -5,16 +5,38 @@
  *   - Layout responsive adaptativo: Split-view de 2 columnas en desktop, vista fluida en mobile.
  *   - Clicks 100% confiables en marcadores, popups de Leaflet y cards de centros.
  *   - Búsqueda en tiempo real por texto (nombre, especialidad, barrio).
- *   - Filtros rápidos por categoría médica (Hospitales, SAME, UPAs, Bomberos, Policía).
+ *   - Filtros rápidos por categoría (Hospitales, Clínicas, SAME, UPAs, Bomberos, Policía).
  *   - Selector de radio dinámico (5 km, 10 km, 20 km, 50 km).
  *   - Detección GPS con fallback instantáneo a Posadas Centro.
  *   - Soporte offline garantizado con catálogo en tierra firme (sin ubicaciones en el río Paraná).
  */
 
 import { useEffect, useRef, useState, useMemo } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { useNavigate, Link } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import {
+  Ambulance,
+  ArrowRight,
+  Buildings,
+  Clock,
+  Crosshair,
+  FireTruck,
+  FirstAidKit,
+  Hospital,
+  Lightning,
+  List,
+  MagnifyingGlass,
+  MapPin,
+  MapTrifold,
+  Phone,
+  ShieldStar,
+  SignOut,
+  Siren,
+  Warning,
+  X,
+} from '@phosphor-icons/react'
 
 import { obtenerCentrosCercanos } from '../api/centros.js'
 import { cerrarSesion, getAuthHeaders } from '../api/auth.js'
@@ -28,19 +50,25 @@ const COORDENADAS_POSADAS = {
 
 const PRESETS_UBICACION = [
   { nombre: 'Posadas Centro', lat: -27.3621, lon: -55.9009 },
-  { nombre: 'Villa Cabello (Oeste)', lat: -27.3825, lon: -55.931 },
+  { nombre: 'Villa Cabello (Oeste)', lat: -27.366, lon: -55.945 },
   { nombre: 'Itaembé Miní (Sur)', lat: -27.4102, lon: -55.9611 },
   { nombre: 'Miguel Lanús (Campus)', lat: -27.4332, lon: -55.8895 },
 ]
 
 // Configuración visual por tipo de servicio
 const TIPOS_CONFIG = {
-  hospital: { label: 'Hospitales', icon: '🏥', color: '#e63946', badgeClass: 'tipo-hospital' },
-  same:     { label: 'SAME / 107', icon: '🚑', color: '#0284c7', badgeClass: 'tipo-same' },
-  upa:      { label: 'UPAs / CAPS', icon: '🩺', color: '#059669', badgeClass: 'tipo-upa' },
-  bomberos: { label: 'Bomberos 100', icon: '🚒', color: '#ea580c', badgeClass: 'tipo-bomberos' },
-  policia:  { label: 'Policía 911', icon: '🚓', color: '#1e293b', badgeClass: 'tipo-policia' },
+  hospital: { label: 'Hospitales', Icon: Hospital, color: '#c42f3a', badgeClass: 'tipo-hospital' },
+  clinica:  { label: 'Clínicas y sanatorios', Icon: Buildings, color: '#7a4b5c', badgeClass: 'tipo-clinica' },
+  same:     { label: 'SAME / 107', Icon: Ambulance, color: '#0284c7', badgeClass: 'tipo-same' },
+  upa:      { label: 'UPAs / CAPS', Icon: FirstAidKit, color: '#059669', badgeClass: 'tipo-upa' },
+  bomberos: { label: 'Bomberos 100', Icon: FireTruck, color: '#ea580c', badgeClass: 'tipo-bomberos' },
+  policia:  { label: 'Policía 911', Icon: ShieldStar, color: '#1e293b', badgeClass: 'tipo-policia' },
 }
+
+const TIPO_GENERICO = { label: 'Centro', Icon: MapPin, color: '#c42f3a' }
+
+// Leaflet recibe HTML plano: los íconos se serializan a SVG
+const iconoHtml = (Icon, props = {}) => renderToStaticMarkup(<Icon {...props} />)
 
 export default function Mapa() {
   const navigate = useNavigate()
@@ -208,7 +236,7 @@ export default function Mapa() {
 
         marker.bindPopup(`
           <div style="font-family: inherit; font-size: 13px; text-align: center; padding: 4px;">
-            <strong style="color: #0284c7;">📍 Tu ubicación actual</strong>
+            <strong style="color: #0284c7;">Tu ubicación actual</strong>
           </div>
         `)
 
@@ -270,19 +298,16 @@ export default function Mapa() {
     markersMapRef.current.clear()
 
     centrosFiltrados.forEach((centro) => {
-      const config = TIPOS_CONFIG[centro.tipo] || {
-        label: 'Centro',
-        icon: '📍',
-        color: '#e63946',
-      }
-      const emoji = config.icon
+      const config = TIPOS_CONFIG[centro.tipo] || TIPO_GENERICO
       const color = config.color
+      const glyphPin = iconoHtml(config.Icon, { size: 18, weight: 'fill', color: '#ffffff' })
+      const glyphCard = iconoHtml(config.Icon, { size: 18, weight: 'regular', color })
 
       const icon = L.divIcon({
         className: 'centro-pin-wrapper',
         html: `
           <div class="centro-pin-body" style="background-color: ${color};" id="pin-${centro.id}">
-            <span class="centro-pin-glyph">${emoji}</span>
+            <span class="centro-pin-glyph">${glyphPin}</span>
           </div>
         `,
         iconSize: [36, 42],
@@ -295,13 +320,13 @@ export default function Mapa() {
       const popupHtml = `
         <div class="leaflet-custom-card">
           <div class="leaflet-card-header">
-            <span class="leaflet-card-icon" style="background-color: ${color}20;">${emoji}</span>
+            <span class="leaflet-card-icon" style="background-color: ${color}20;">${glyphCard}</span>
             <div>
               <h4 class="leaflet-card-title">${centro.nombre}</h4>
               <span class="leaflet-card-dist">${centro.distancia_km != null ? `${centro.distancia_km} km` : 'Cercano'}</span>
             </div>
           </div>
-          <p class="leaflet-card-address">📍 ${centro.direccion}</p>
+          <p class="leaflet-card-address">${centro.direccion}</p>
           <div class="leaflet-card-badges">
             <span class="badge ${centro.atiende_24h ? 'badge--green' : 'badge--gray'}">
               ${centro.atiende_24h ? '24 Horas' : 'Horario reducido'}
@@ -313,7 +338,7 @@ export default function Mapa() {
             class="btn btn--popup-detalle"
             data-id="${centro.id}"
           >
-            Ver guardia y avisar →
+            Ver guardia y avisar
           </button>
         </div>
       `
@@ -363,7 +388,7 @@ export default function Mapa() {
       <header className="mapa-topbar" role="banner">
         <div className="mapa-topbar-left">
           <Link to="/" className="mapa-brand-link" aria-label="Ir a portada EmergenciaYA">
-            <span className="mapa-brand-icon" aria-hidden="true">🚨</span>
+            <span className="mapa-brand-icon" aria-hidden="true"><Siren size={20} weight="fill" /></span>
             <span className="mapa-brand-title">EmergenciaYA</span>
           </Link>
 
@@ -382,7 +407,7 @@ export default function Mapa() {
               onClick={() => setVistaMobile('lista')}
               aria-label="Ver lista de centros"
             >
-              📋 Lista ({centrosFiltrados.length})
+              <List size={16} /> Lista ({centrosFiltrados.length})
             </button>
             <button
               type="button"
@@ -393,7 +418,7 @@ export default function Mapa() {
               }}
               aria-label="Ver mapa"
             >
-              🗺️ Mapa
+              <MapTrifold size={16} /> Mapa
             </button>
           </div>
 
@@ -406,7 +431,7 @@ export default function Mapa() {
             title="Actualizar mi ubicación con GPS"
             aria-label="Actualizar GPS"
           >
-            <span className={obteniendoGPS ? 'spin-icon' : ''}>🎯</span>
+            <span className={obteniendoGPS ? 'spin-icon' : ''}><Crosshair size={18} /></span>
             <span className="desktop-btn-label">Mi ubicación</span>
           </button>
 
@@ -418,7 +443,7 @@ export default function Mapa() {
             title="Cerrar sesión"
             aria-label="Cerrar sesión"
           >
-            <span>🚪</span>
+            <SignOut size={18} />
           </button>
         </div>
       </header>
@@ -426,8 +451,8 @@ export default function Mapa() {
       {/* Banner de modo offline si aplica */}
       {esOffline && (
         <aside className="offline-alert-banner" role="status">
-          <span aria-hidden="true">⚡</span>
-          <span>Modo desconectado: mostrando guardias verificadas de Posadas en memoria local.</span>
+          <Lightning size={16} aria-hidden="true" />
+          <span>Sin conexión: se muestran los centros de Posadas guardados en el dispositivo.</span>
         </aside>
       )}
 
@@ -456,7 +481,7 @@ export default function Mapa() {
               onClick={() => setMostrarSelectorManual(false)}
               aria-label="Cerrar selector"
             >
-              ✕
+              <X size={16} />
             </button>
           </div>
           <div className="manual-presets-row">
@@ -470,7 +495,7 @@ export default function Mapa() {
                   setMostrarSelectorManual(false)
                 }}
               >
-                📍 {p.nombre}
+                <MapPin size={14} /> {p.nombre}
               </button>
             ))}
           </div>
@@ -484,7 +509,7 @@ export default function Mapa() {
           {/* Barra de Filtros y Búsqueda */}
           <div className="sidebar-filter-hub">
             <div className="search-input-wrapper">
-              <span className="search-icon" aria-hidden="true">🔍</span>
+              <span className="search-icon" aria-hidden="true"><MagnifyingGlass size={18} /></span>
               <input
                 type="text"
                 className="search-input"
@@ -500,7 +525,7 @@ export default function Mapa() {
                   onClick={() => setBusquedaTexto('')}
                   aria-label="Borrar búsqueda"
                 >
-                  ✕
+                  <X size={14} />
                 </button>
               )}
             </div>
@@ -521,7 +546,7 @@ export default function Mapa() {
                   className={`category-chip ${tipoFiltro === key ? 'category-chip--active' : ''}`}
                   onClick={() => setTipoFiltro(key)}
                 >
-                  <span aria-hidden="true">{cfg.icon}</span>
+                  <cfg.Icon size={16} aria-hidden="true" />
                   <span>{cfg.label}</span>
                 </button>
               ))}
@@ -545,7 +570,7 @@ export default function Mapa() {
               </div>
 
               <span className="active-location-tag">
-                📍 {ubicacionUsuario.nombre}
+                <MapPin size={14} /> {ubicacionUsuario.nombre}
               </span>
             </div>
           </div>
@@ -555,13 +580,13 @@ export default function Mapa() {
             {cargandoCentros && (
               <div className="cards-loading-state">
                 <span className="action-spinner action-spinner--red" aria-hidden="true" />
-                <p>Calculando distancias y guardias disponibles...</p>
+                <p>Buscando centros cercanos...</p>
               </div>
             )}
 
             {errorCentros && !cargandoCentros && (
               <div className="cards-error-state">
-                <p>⚠️ {errorCentros}</p>
+                <p><Warning size={16} /> {errorCentros}</p>
                 <button
                   type="button"
                   className="btn btn--sm-outline"
@@ -574,7 +599,7 @@ export default function Mapa() {
 
             {!cargandoCentros && centrosFiltrados.length === 0 && !errorCentros && (
               <div className="cards-empty-state">
-                <span className="empty-icon" aria-hidden="true">🔍</span>
+                <span className="empty-icon" aria-hidden="true"><MagnifyingGlass size={28} /></span>
                 <h3>Sin centros en un radio de {radioKm} km</h3>
                 <p>Probá ampliar el radio a 20 o 50 km para ver centros de Posadas y alrededores.</p>
                 <div className="empty-actions">
@@ -601,11 +626,7 @@ export default function Mapa() {
 
             {!cargandoCentros &&
               centrosFiltrados.map((centro) => {
-                const cfg = TIPOS_CONFIG[centro.tipo] || {
-                  label: 'Centro',
-                  icon: '📍',
-                  color: '#e63946',
-                }
+                const cfg = TIPOS_CONFIG[centro.tipo] || TIPO_GENERICO
                 const esActivo = centroSeleccionadoId === centro.id
 
                 return (
@@ -618,10 +639,10 @@ export default function Mapa() {
                     <div className="center-card-topbar">
                       <div className="center-card-badge-group">
                         <span className="center-category-badge" style={{ backgroundColor: `${cfg.color}15`, color: cfg.color }}>
-                          {cfg.icon} {centro.tipo_legible || cfg.label}
+                          <cfg.Icon size={14} weight="bold" /> {centro.tipo_legible || cfg.label}
                         </span>
                         <span className={`badge ${centro.atiende_24h ? 'badge--green' : 'badge--gray'}`}>
-                          {centro.atiende_24h ? '⏰ 24 Horas' : 'Horario diurno'}
+                          {centro.atiende_24h ? <><Clock size={12} weight="bold" /> 24 horas</> : 'Horario diurno'}
                         </span>
                       </div>
 
@@ -635,7 +656,7 @@ export default function Mapa() {
                     <div className="center-card-body">
                       <h3 className="center-card-title">{centro.nombre}</h3>
                       <p className="center-card-address">
-                        <span aria-hidden="true">📍</span> {centro.direccion}
+                        <MapPin size={14} aria-hidden="true" /> {centro.direccion}
                       </p>
                     </div>
 
@@ -648,7 +669,7 @@ export default function Mapa() {
                           title={`Llamar al ${centro.telefono}`}
                           aria-label={`Llamar a ${centro.nombre}`}
                         >
-                          <span>📞</span>
+                          <Phone size={16} />
                           <span>{centro.telefono}</span>
                         </a>
                       )}
@@ -663,7 +684,7 @@ export default function Mapa() {
                         aria-label={`Ver detalles y avisar a ${centro.nombre}`}
                       >
                         <span>Avisar llegada</span>
-                        <span aria-hidden="true">→</span>
+                        <ArrowRight size={16} aria-hidden="true" />
                       </button>
                     </div>
                   </article>
@@ -682,7 +703,7 @@ export default function Mapa() {
           {/* Quick HUD del mapa */}
           <div className="map-hud-overlay">
             <span className="hud-badge">
-              📍 {centrosFiltrados.length} centros en pantalla
+              <MapPin size={14} /> {centrosFiltrados.length} centros en pantalla
             </span>
           </div>
         </section>

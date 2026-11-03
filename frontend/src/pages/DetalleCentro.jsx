@@ -5,7 +5,7 @@
  *   - Ficha del centro con badge de guardia 24h, distancia y tiempo estimado de viaje.
  *   - Enlace directo a navegación GPS (Google Maps / Waze).
  *   - Botón de llamada directa de 1 toque con el número del hospital.
- *   - Botón heroico "🚨 Voy en camino - Avisar a la guardia" visible sin scroll.
+ *   - Botón principal "Voy en camino - Avisar a la guardia" visible sin scroll.
  *   - Modal de solicitud rápida con chips de síntomas frecuentes (1 toque para emergencias).
  *   - Validación clara, prevención de doble envío y redirección a seguimiento.
  */
@@ -16,14 +16,33 @@ import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { obtenerCentroPorId } from '../api/centros.js'
 import { crearSolicitud } from '../api/atencion.js'
 import { getAuthHeaders } from '../api/auth.js'
+import {
+  Ambulance,
+  ArrowLeft,
+  Buildings,
+  CalendarPlus,
+  Car,
+  Clock,
+  FireTruck,
+  FirstAidKit,
+  Hospital,
+  MapPin,
+  NavigationArrow,
+  Phone,
+  ShieldStar,
+  Siren,
+  Warning,
+  X,
+} from '@phosphor-icons/react'
 
-const TIPOS_EMOJI = {
-  hospital: '🏥',
-  same:     '🚑',
-  upa:      '🩺',
-  bomberos: '🚒',
-  policia:  '🚓',
-  otro:     '📍',
+const TIPOS_ICONO = {
+  hospital: Hospital,
+  clinica:  Buildings,
+  same:     Ambulance,
+  upa:      FirstAidKit,
+  bomberos: FireTruck,
+  policia:  ShieldStar,
+  otro:     MapPin,
 }
 
 const SINTOMAS_RAPIDOS = [
@@ -149,12 +168,12 @@ export default function DetalleCentro() {
       <div className="detalle-screen-layout">
         <header className="detalle-nav-bar">
           <Link to="/mapa" className="detalle-back-btn">
-            ← Volver al mapa
+            <ArrowLeft size={16} /> Volver al mapa
           </Link>
         </header>
         <div className="detalle-loading-box">
           <span className="action-spinner action-spinner--red" aria-hidden="true" />
-          <p>Conectando con la guardia del centro médico...</p>
+          <p>Cargando datos del centro...</p>
         </div>
       </div>
     )
@@ -165,11 +184,11 @@ export default function DetalleCentro() {
       <div className="detalle-screen-layout">
         <header className="detalle-nav-bar">
           <Link to="/mapa" className="detalle-back-btn">
-            ← Volver al mapa
+            <ArrowLeft size={16} /> Volver al mapa
           </Link>
         </header>
         <div className="detalle-error-box">
-          <p>⚠️ {errorCarga || 'Centro médico no encontrado'}</p>
+          <p><Warning size={18} /> {errorCarga || 'Centro médico no encontrado'}</p>
           <Link to="/mapa" className="btn btn--hero-primary btn--sm">
             Volver a la lista de centros
           </Link>
@@ -178,7 +197,7 @@ export default function DetalleCentro() {
     )
   }
 
-  const iconoTipo = TIPOS_EMOJI[centro.tipo] || '📍'
+  const IconoTipo = TIPOS_ICONO[centro.tipo] || MapPin
   const minutosEstimados =
     centro.distancia_km != null
       ? Math.max(3, Math.round(centro.distancia_km * 2.2))
@@ -192,7 +211,7 @@ export default function DetalleCentro() {
       <header className="detalle-nav-bar" role="banner">
         <div className="detalle-nav-inner">
           <Link to="/mapa" className="detalle-back-btn" aria-label="Volver al mapa">
-            <span aria-hidden="true">←</span>
+            <ArrowLeft size={16} aria-hidden="true" />
             <span>Volver al mapa</span>
           </Link>
           <div className="detalle-guardia-indicator">
@@ -209,14 +228,14 @@ export default function DetalleCentro() {
           <article className="medical-profile-card">
             <div className="profile-badge-row">
               <span className="profile-icon-large" aria-hidden="true">
-                {iconoTipo}
+                <IconoTipo size={30} />
               </span>
               <div className="profile-badges-wrap">
                 <span className="badge badge--tipo">
                   {centro.tipo_legible || 'Centro de Salud'}
                 </span>
                 <span className={`badge ${centro.atiende_24h ? 'badge--green' : 'badge--gray'}`}>
-                  {centro.atiende_24h ? '⏰ Abierto 24 Horas' : 'Horario limitado'}
+                  {centro.atiende_24h ? <><Clock size={12} weight="bold" /> Abierto 24 horas</> : 'Horario limitado'}
                 </span>
               </div>
             </div>
@@ -227,13 +246,13 @@ export default function DetalleCentro() {
             <div className="profile-metrics-strip">
               {centro.distancia_km != null && (
                 <div className="metric-pill">
-                  <span className="metric-icon" aria-hidden="true">📍</span>
+                  <span className="metric-icon" aria-hidden="true"><MapPin size={16} /></span>
                   <span className="metric-data">{centro.distancia_km} km de distancia</span>
                 </div>
               )}
               {minutosEstimados != null && (
                 <div className="metric-pill metric-pill--time">
-                  <span className="metric-icon" aria-hidden="true">🚗</span>
+                  <span className="metric-icon" aria-hidden="true"><Car size={16} /></span>
                   <span className="metric-data">~{minutosEstimados} min en vehículo</span>
                 </div>
               )}
@@ -242,7 +261,7 @@ export default function DetalleCentro() {
             {/* Datos de contacto y ubicación */}
             <div className="profile-details-list">
               <div className="detail-row">
-                <span className="detail-row-icon" aria-hidden="true">📍</span>
+                <span className="detail-row-icon" aria-hidden="true"><MapPin size={18} /></span>
                 <div className="detail-row-text">
                   <strong>Dirección:</strong>
                   <span>{centro.direccion}, {centro.ciudad || 'Posadas'}</span>
@@ -251,7 +270,7 @@ export default function DetalleCentro() {
 
               {centro.telefono && (
                 <div className="detail-row">
-                  <span className="detail-row-icon" aria-hidden="true">📞</span>
+                  <span className="detail-row-icon" aria-hidden="true"><Phone size={18} /></span>
                   <div className="detail-row-text">
                     <strong>Teléfono de guardia:</strong>
                     <a href={`tel:${centro.telefono}`} className="profile-phone-link">
@@ -270,7 +289,8 @@ export default function DetalleCentro() {
               className="btn btn--maps-direct"
               title="Abrir indicaciones en Google Maps"
             >
-              <span>🧭 Cómo llegar (Abrir GPS)</span>
+              <NavigationArrow size={18} />
+              <span>Cómo llegar</span>
             </a>
           </article>
 
@@ -283,10 +303,10 @@ export default function DetalleCentro() {
               onClick={() => abrirModal('aviso')}
             >
               <div className="emergency-btn-inner">
-                <span className="emergency-btn-icon" aria-hidden="true">🚨</span>
+                <span className="emergency-btn-icon" aria-hidden="true"><Siren size={26} weight="fill" /></span>
                 <div className="emergency-btn-copy">
                   <strong>Voy en camino - Avisar a la guardia</strong>
-                  <small>Alerta inmediata al equipo de recepción médica</small>
+                  <small>La guardia recibe tu aviso antes de que llegues</small>
                 </div>
               </div>
             </button>
@@ -297,12 +317,14 @@ export default function DetalleCentro() {
               className="btn btn--emergency-secondary"
               onClick={() => abrirModal('solicitud')}
             >
-              <span>📅 Solicitar atención médica en el centro</span>
+              <CalendarPlus size={18} />
+              <span>Solicitar atención en el centro</span>
             </button>
 
             {centro.telefono && (
               <a href={`tel:${centro.telefono}`} className="btn btn--call-center">
-                <span>📞 Llamar al centro médico ({centro.telefono})</span>
+                <Phone size={18} />
+                <span>Llamar al centro ({centro.telefono})</span>
               </a>
             )}
           </section>
@@ -323,8 +345,8 @@ export default function DetalleCentro() {
               <div className="modal-header-text">
                 <h3 id="modal-emergency-title">
                   {modoSeleccionado === 'aviso'
-                    ? '🚨 Avisar que voy en camino'
-                    : '📅 Solicitar atención médica'}
+                    ? 'Avisar que voy en camino'
+                    : 'Solicitar atención médica'}
                 </h3>
                 <p className="modal-target-center">Destino: <strong>{centro.nombre}</strong></p>
               </div>
@@ -335,19 +357,19 @@ export default function DetalleCentro() {
                 disabled={enviando}
                 aria-label="Cerrar ventana"
               >
-                ✕
+                <X size={18} />
               </button>
             </div>
 
             {errorEnvio && (
               <div className="modal-error-alert" role="alert">
-                <span>⚠️ {errorEnvio}</span>
+                <Warning size={16} /><span>{errorEnvio}</span>
               </div>
             )}
 
             {errorValidacion && (
               <div className="modal-error-alert" role="alert">
-                <span>⚠️ {errorValidacion}</span>
+                <Warning size={16} /><span>{errorValidacion}</span>
               </div>
             )}
 
@@ -388,7 +410,7 @@ export default function DetalleCentro() {
               {esInvitado && (
                 <div className="form-field-group">
                   <label htmlFor="input-nombre-invitado" className="form-field-label">
-                    Tu nombre y apellido <span style={{ color: '#e63946' }}>*</span>
+                    Tu nombre y apellido <span style={{ color: '#c42f3a' }}>*</span>
                   </label>
                   <input
                     id="input-nombre-invitado"
@@ -442,7 +464,7 @@ export default function DetalleCentro() {
                   {enviando ? (
                     <>
                       <span className="action-spinner" aria-hidden="true" />
-                      <span>Transmitiendo a guardia...</span>
+                      <span>Enviando...</span>
                     </>
                   ) : (
                     <span>Confirmar y enviar aviso</span>
