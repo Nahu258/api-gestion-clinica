@@ -17,6 +17,13 @@ class GoogleTokenSerializer(serializers.Serializer):
     )
 
 
+class LoginPasswordSerializer(serializers.Serializer):
+    """Credenciales para POST /auth/login/."""
+
+    email = serializers.CharField(max_length=254)
+    password = serializers.CharField(max_length=128, trim_whitespace=False)
+
+
 class PerfilUsuarioSerializer(serializers.Serializer):
     """
     Representación pública del usuario autenticado.
@@ -30,7 +37,11 @@ class PerfilUsuarioSerializer(serializers.Serializer):
     foto_url = serializers.URLField(allow_blank=True, default="")
     rol = serializers.CharField(default="PACIENTE")
     centro_id = serializers.IntegerField(allow_null=True, required=False, default=None)
+    centro_nombre = serializers.CharField(allow_blank=True, required=False, default="")
     medico_id = serializers.IntegerField(allow_null=True, required=False, default=None)
+    medico_nombre = serializers.CharField(allow_blank=True, required=False, default="")
+    medico_matricula = serializers.CharField(allow_blank=True, required=False, default="")
+    medico_especialidad = serializers.CharField(allow_blank=True, required=False, default="")
 
 
 

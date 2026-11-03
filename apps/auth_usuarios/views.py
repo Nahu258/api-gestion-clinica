@@ -2,6 +2,7 @@
 Vistas de autenticación — Épica 2, issues #13 y #14.
 
 POST /api/v1/auth/google/    → intercambia id_token de Google por JWT propio
+POST /api/v1/auth/login/     → email + contraseña → JWT propio
 POST /api/v1/auth/refresh/   → renueva el access_token con el refresh_token
 GET  /api/v1/auth/me/        → devuelve el perfil del usuario autenticado
 POST /api/v1/auth/invitado/  → genera token de invitado temporal (Redis)
@@ -22,10 +23,23 @@ from apps.auth_usuarios import services_invitado
 from apps.auth_usuarios.serializers import (
     GoogleTokenSerializer,
     InvitadoSerializer,
+    LoginPasswordSerializer,
     PerfilUsuarioSerializer,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _vincular_solicitud_invitado(request: Request, resultado: dict) -> None:
+    """Asocia a la cuenta la solicitud hecha como invitado antes de loguearse (Épica 4 issue #30)."""
+    solicitud_id = request.data.get("solicitud_id")
+    if solicitud_id and resultado.get("usuario"):
+        try:
+            from apps.atencion.models import SolicitudAtencion
+            user_id = resultado["usuario"]["id"]
+            SolicitudAtencion.objects.filter(pk=solicitud_id, usuario_id__isnull=True).update(usuario_id=user_id)
+        except Exception as exc:
+            logger.warning("Error vinculando solicitud %s: %s", solicitud_id, exc)
 
 
 class GoogleLoginAPIView(APIView):
@@ -59,17 +73,41 @@ class GoogleLoginAPIView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        # Vincular solicitud de invitado previa si se envía en el login (Épica 4 issue #30)
-        solicitud_id = request.data.get("solicitud_id")
-        if solicitud_id and resultado.get("usuario"):
-            try:
-                from apps.atencion.models import SolicitudAtencion
-                user_id = resultado["usuario"]["id"]
-                SolicitudAtencion.objects.filter(pk=solicitud_id, usuario_id__isnull=True).update(usuario_id=user_id)
-            except Exception as exc:
-                logger.warning("Error vinculando solicitud %s: %s", solicitud_id, exc)
-
+        _vincular_solicitud_invitado(request, resultado)
         return Response(resultado, status=status.HTTP_201_CREATED)
+
+
+class PasswordLoginAPIView(APIView):
+    """
+    POST /api/v1/auth/login/
+
+    Login con email y contraseña. Devuelve los mismos JWT que el login con Google.
+
+    Body:
+        { "email": "...", "password": "...", "solicitud_id": 12 (opcional) }
+
+    Respuestas:
+        200  → { access_token, refresh_token, token_type, usuario }
+        400  → faltan campos
+        401  → credenciales inválidas
+    """
+
+    authentication_classes = []
+
+    def post(self, request: Request) -> Response:
+        serializer = LoginPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            resultado = services.autenticar_con_password(
+                serializer.validated_data["email"],
+                serializer.validated_data["password"],
+            )
+        except services.CredencialesInvalidasError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
+
+        _vincular_solicitud_invitado(request, resultado)
+        return Response(resultado, status=status.HTTP_200_OK)
 
 
 class RefreshTokenAPIView(APIView):
@@ -121,19 +159,7 @@ class MeAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request: Request) -> Response:
-        user = request.user
-        rol, centro_id, medico_id, foto_url = services.obtener_datos_perfil(user)
-
-        datos = {
-            "id": user.pk,
-            "email": user.email,
-            "nombre": f"{user.first_name} {user.last_name}".strip() or user.username,
-            "foto_url": foto_url,
-            "rol": rol,
-            "centro_id": centro_id,
-            "medico_id": medico_id,
-        }
-
+        datos = services.serializar_usuario(request.user)
         serializer = PerfilUsuarioSerializer(datos)
         return Response(serializer.data, status=status.HTTP_200_OK)
 

@@ -102,6 +102,63 @@ def obtener_o_crear_usuario(payload: dict) -> User:
     return user
 
 
+class CredencialesInvalidasError(Exception):
+    """Email o contraseña incorrectos, o cuenta inactiva."""
+    pass
+
+
+def autenticar_con_password(email: str, password: str) -> dict:
+    """
+    Login con email y contraseña para cuentas creadas por el centro
+    (personal médico, administración) y pacientes de prueba.
+
+    Lanza CredencialesInvalidasError si las credenciales no son válidas.
+    """
+    from django.contrib.auth import authenticate  # noqa: PLC0415
+
+    email = (email or "").strip().lower()
+    user = authenticate(username=email, password=password)
+    if user is None:
+        candidato = User.objects.filter(email__iexact=email).first()
+        if candidato is not None:
+            user = authenticate(username=candidato.username, password=password)
+    if user is None or not user.is_active:
+        raise CredencialesInvalidasError("Email o contraseña incorrectos.")
+
+    tokens = generar_jwt_para_usuario(user)
+    return {**tokens, "usuario": serializar_usuario(user)}
+
+
+def serializar_usuario(user: User) -> dict:
+    """Datos públicos del usuario, con nombres de centro y médico asociados."""
+    rol, centro_id, medico_id, foto_url = obtener_datos_perfil(user)
+    perfil = getattr(user, "perfil", None)
+    centro = getattr(perfil, "centro", None) if perfil else None
+    medico = getattr(perfil, "medico", None) if perfil else None
+
+    especialidad = ""
+    if medico:
+        asignacion = medico.asignaciones_centro.filter(activo=True).select_related("especialidad")
+        if centro:
+            asignacion = asignacion.filter(centro=centro)
+        primera = asignacion.first()
+        especialidad = primera.especialidad.nombre if primera else medico.get_especialidad_display()
+
+    return {
+        "id": user.pk,
+        "email": user.email,
+        "nombre": f"{user.first_name} {user.last_name}".strip() or user.username,
+        "foto_url": foto_url,
+        "rol": rol,
+        "centro_id": centro_id,
+        "centro_nombre": centro.nombre if centro else "",
+        "medico_id": medico_id,
+        "medico_nombre": medico.nombre if medico else "",
+        "medico_matricula": medico.matricula if medico else "",
+        "medico_especialidad": especialidad,
+    }
+
+
 def obtener_datos_perfil(user: User) -> tuple[str, int | None, int | None, str]:
     """Retorna (rol, centro_id, medico_id, foto_url) para el usuario."""
     rol = "PACIENTE"
