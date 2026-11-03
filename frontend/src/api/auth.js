@@ -2,6 +2,7 @@
  * api/auth.js - Capa de comunicación con el backend de autenticación.
  *
  * Cubre los flujos de la Épica 2:
+ *   - Email y contraseña → JWT propio (POST /api/v1/auth/login/)
  *   - Google OAuth2: id_token → JWT propio (POST /api/v1/auth/google/)
  *   - Modo invitado: POST /api/v1/auth/invitado/ → X-Guest-Token
  *
@@ -38,6 +39,33 @@ export async function loginConGoogle(idToken) {
   }
 
   const data = await res.json()
+  localStorage.setItem(KEY_JWT, data.access_token)
+  localStorage.setItem(KEY_REFRESH, data.refresh_token)
+  return data
+}
+
+/**
+ * Login con email y contraseña (personal del centro, médicos y pacientes).
+ */
+export async function loginConPassword(email, password) {
+  const payload = { email, password }
+  const solicitudId = sessionStorage.getItem('emergenciaya_solicitud_id')
+  if (solicitudId && !isNaN(Number(solicitudId))) {
+    payload.solicitud_id = Number(solicitudId)
+  }
+
+  const res = await fetch(`${API_BASE}/auth/login/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(data.error || `Error ${res.status} al iniciar sesión.`)
+  }
+
+  sessionStorage.removeItem(KEY_GUEST_TOKEN)
   localStorage.setItem(KEY_JWT, data.access_token)
   localStorage.setItem(KEY_REFRESH, data.refresh_token)
   return data
@@ -141,9 +169,10 @@ export async function refrescarToken() {
     }
 
     const data = await res.json()
-    if (data.access) {
-      localStorage.setItem(KEY_JWT, data.access)
-      return data.access
+    const access = data.access_token || data.access
+    if (access) {
+      localStorage.setItem(KEY_JWT, access)
+      return access
     }
     return null
   } catch {

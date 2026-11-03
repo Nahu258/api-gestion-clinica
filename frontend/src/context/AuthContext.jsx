@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import {
   loginConGoogle,
+  loginConPassword,
   loginComoInvitado,
   obtenerUsuarioActual,
   refrescarToken,
@@ -83,6 +84,17 @@ export function AuthProvider({ children }) {
     }
   }, [sincronizar])
 
+  const loginPassword = useCallback(async (email, password) => {
+    setCargando(true)
+    try {
+      const data = await loginConPassword(email, password)
+      const perfil = await sincronizar()
+      return perfil || data.usuario
+    } finally {
+      setCargando(false)
+    }
+  }, [sincronizar])
+
   const loginInvitado = useCallback(async (nombre = '') => {
     setCargando(true)
     try {
@@ -120,6 +132,7 @@ export function AuthProvider({ children }) {
     estaAutenticado,
     cargando,
     loginGoogle,
+    loginPassword,
     loginInvitado,
     logout,
     sincronizar,
