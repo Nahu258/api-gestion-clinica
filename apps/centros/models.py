@@ -19,6 +19,7 @@ class CentroEmergencia(models.Model):
 
     class Tipo(models.TextChoices):
         HOSPITAL  = "hospital",  "Hospital público"
+        CLINICA   = "clinica",   "Clínica / Sanatorio privado"
         UPA       = "upa",       "UPA / Sala de primeros auxilios"
         SAME      = "same",      "SAME / Ambulancia"
         BOMBEROS  = "bomberos",  "Bomberos"
