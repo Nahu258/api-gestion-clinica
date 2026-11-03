@@ -72,7 +72,7 @@ services:
     command: >
       sh -c "python manage.py migrate --noinput &&
              python manage.py seed_turnos &&
-             python manage.py seed_centros &&
+             python manage.py seed_demo &&
              python manage.py runserver 0.0.0.0:8000"
 
   # Consumidor de RabbitMQ para comprobantes PDF con QR (TurnoReservado)
@@ -127,8 +127,17 @@ services:
     environment:
       VITE_API_URL: http://api:8000
       VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      # Docker Desktop en Windows no propaga eventos de archivos al contenedor
+      VITE_USE_POLLING: "true"
     ports:
       - "5173:5173"
+    # Código montado en vivo: los cambios se ven sin reconstruir la imagen.
+    # node_modules queda en un volumen propio del contenedor (el del host tiene
+    # binarios de Windows). Si cambian las dependencias:
+    #   docker compose up -d --build -V frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     depends_on:
       - api
     restart: unless-stopped

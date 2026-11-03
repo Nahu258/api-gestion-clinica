@@ -8,6 +8,8 @@ export default defineConfig({
   server: {
     port: 5173,
     host: '0.0.0.0',
+    // En Docker sobre Windows hace falta polling para detectar cambios del código montado
+    watch: process.env.VITE_USE_POLLING === 'true' ? { usePolling: true, interval: 300 } : undefined,
     proxy: {
       '/api': {
         target: apiTarget,
