@@ -50,6 +50,7 @@ class SolicitudAtencionSerializer(serializers.ModelSerializer):
 
     especialidad_nombre = serializers.CharField(source="especialidad_asignada.nombre", read_only=True)
     medico_nombre       = serializers.CharField(source="medico_asignado.nombre",       read_only=True)
+    paciente_nombre     = serializers.SerializerMethodField()
 
     class Meta:
         model  = SolicitudAtencion
@@ -67,6 +68,7 @@ class SolicitudAtencionSerializer(serializers.ModelSerializer):
             "usuario_id",
             "nombre_invitado",
             "telefono_invitado",
+            "paciente_nombre",
             "especialidad_asignada",
             "especialidad_nombre",
             "medico_asignado",
@@ -74,12 +76,29 @@ class SolicitudAtencionSerializer(serializers.ModelSerializer):
             "fecha_derivacion",
             "prioridad",
             "observaciones_triage",
+            "diagnostico",
+            "indicaciones",
+            "atendido_en",
             "lat_usuario",
             "lon_usuario",
             "creado_en",
             "actualizado_en",
         ]
-        read_only_fields = ["id", "estado", "creado_en", "actualizado_en"]
+        read_only_fields = [
+            "id", "estado", "diagnostico", "indicaciones", "atendido_en",
+            "creado_en", "actualizado_en",
+        ]
+
+    def get_paciente_nombre(self, instance) -> str:
+        """Nombre del paciente registrado, o el que dejó el invitado."""
+        if not instance.usuario_id:
+            return instance.nombre_invitado or ""
+        cache = self.context.setdefault("_usuarios", {})
+        if instance.usuario_id not in cache:
+            from django.contrib.auth import get_user_model  # noqa: PLC0415
+            user = get_user_model().objects.filter(pk=instance.usuario_id).first()
+            cache[instance.usuario_id] = (user.get_full_name() or user.username) if user else ""
+        return cache[instance.usuario_id]
 
     def to_representation(self, instance):
         """Sobreescribimos para que centro_id muestre el ID en la salida."""
