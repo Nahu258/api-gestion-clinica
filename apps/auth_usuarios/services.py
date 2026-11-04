@@ -125,6 +125,10 @@ def autenticar_con_password(email: str, password: str) -> dict:
     if user is None or not user.is_active:
         raise CredencialesInvalidasError("Email o contraseña incorrectos.")
 
+    # Registra el último acceso (lo muestra la consola de usuarios del personal).
+    from django.contrib.auth.models import update_last_login  # noqa: PLC0415
+    update_last_login(None, user)
+
     tokens = generar_jwt_para_usuario(user)
     return {**tokens, "usuario": serializar_usuario(user)}
 
