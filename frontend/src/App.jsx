@@ -15,6 +15,8 @@ import AdminLayout from './pages/admin/AdminLayout.jsx'
 import GestionLayout from './pages/gestion/GestionLayout.jsx'
 import EnConstruccion from './pages/EnConstruccion.jsx'
 import Instituciones from './pages/admin/Instituciones.jsx'
+import InstitucionForm from './pages/admin/InstitucionForm.jsx'
+import InstitucionDetalle from './pages/admin/InstitucionDetalle.jsx'
 
 /**
  * App - enrutador raíz de EmergenciaYA con RBAC (Épica 4 issue #26).
@@ -52,7 +54,9 @@ export default function App() {
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<EnConstruccion titulo="Resumen de la red" />} />
               <Route path="instituciones" element={<Instituciones />} />
-              <Route path="instituciones/*" element={<EnConstruccion titulo="Institución" />} />
+              <Route path="instituciones/nueva" element={<InstitucionForm />} />
+              <Route path="instituciones/:id" element={<InstitucionDetalle />} />
+              <Route path="instituciones/:id/editar" element={<InstitucionForm />} />
               <Route path="especialidades" element={<EnConstruccion titulo="Especialidades" />} />
               <Route path="usuarios" element={<EnConstruccion titulo="Usuarios del personal" />} />
             </Route>

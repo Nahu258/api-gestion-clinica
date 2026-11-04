@@ -490,3 +490,75 @@
 
 .ui-map-legend > span { display: inline-flex; align-items: center; gap: 6px; }
 .ui-map-legend > span:last-child { margin-left: auto; }
+
+/* ── Institución: formulario y detalle (AE5-07) ─────────────────────────── */
+
+.ui-backlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ink-3);
+  font: 500 0.86rem var(--font-ui);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ui-backlink:hover { color: var(--ink); }
+
+.ui-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 479px) {
+  .ui-form__actions .ui-btn { flex: 1; }
+}
+
+.ui-mono-input .ui-input { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.mapa-pin {
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.ui-card .mapa-pin { border-radius: 0; border-left: none; border-right: none; }
+
+.ui-pin { background: none; border: none; }
+
+.ui-pin__dot {
+  display: block;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(20, 23, 28, 0.35);
+  cursor: grab;
+}
+
+.leaflet-dragging .ui-pin__dot { cursor: grabbing; }
+
+.ui-stat--link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  transition: background 0.12s var(--ease);
+}
+
+.ui-stat--link:hover { background: #fafbfc; }
+.ui-stat--link .ui-stat__label { display: flex; align-items: center; gap: 6px; }
+.ui-stat--link .ui-stat__hint { color: var(--ink-2); font-weight: 500; }
+
+.ui-card__foot {
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+}
