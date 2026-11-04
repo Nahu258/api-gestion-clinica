@@ -30,3 +30,5 @@ desktop.ini
 .agents
 .claude
 skills-lock.json
+# --- Scripts locales de despliegue ---
+deploy.ps1
