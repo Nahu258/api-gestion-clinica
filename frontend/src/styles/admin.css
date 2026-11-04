@@ -450,3 +450,43 @@
 }
 
 .ui-kpis .ui-stat__value { font-size: 1.6rem; }
+
+/* ── Instituciones (AE5-06) ─────────────────────────────────────────────── */
+
+.ui-link-strong {
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.ui-link-strong:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.ui-search__input--plain { padding-left: 12px; }
+
+.ui-kpis .ui-stat--wide { grid-column: 1 / -1; border-left: none; border-top: 1px solid var(--line); }
+
+@media (min-width: 900px) {
+  .ui-kpis .ui-stat--wide { grid-column: auto; border-top: none; border-left: 1px solid var(--line); }
+}
+
+.ui-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+
+.ui-chip--btn { border: none; cursor: pointer; font-family: var(--font-ui); }
+.ui-chip--btn:hover { filter: brightness(0.96); }
+
+.ui-dot--alert { background: var(--accent); }
+
+.mapa-instituciones { border-radius: 0; }
+
+.ui-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  font-size: 0.82rem;
+}
+
+.ui-map-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.ui-map-legend > span:last-child { margin-left: auto; }

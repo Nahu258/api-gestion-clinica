@@ -14,6 +14,7 @@ import { ToastProvider } from './components/ui/Toast.jsx'
 import AdminLayout from './pages/admin/AdminLayout.jsx'
 import GestionLayout from './pages/gestion/GestionLayout.jsx'
 import EnConstruccion from './pages/EnConstruccion.jsx'
+import Instituciones from './pages/admin/Instituciones.jsx'
 
 /**
  * App - enrutador raíz de EmergenciaYA con RBAC (Épica 4 issue #26).
@@ -50,7 +51,8 @@ export default function App() {
           <Route element={<RoleGuard allowedRoles={['ADMIN']} />}>
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<EnConstruccion titulo="Resumen de la red" />} />
-              <Route path="instituciones/*" element={<EnConstruccion titulo="Instituciones" />} />
+              <Route path="instituciones" element={<Instituciones />} />
+              <Route path="instituciones/*" element={<EnConstruccion titulo="Institución" />} />
               <Route path="especialidades" element={<EnConstruccion titulo="Especialidades" />} />
               <Route path="usuarios" element={<EnConstruccion titulo="Usuarios del personal" />} />
             </Route>
