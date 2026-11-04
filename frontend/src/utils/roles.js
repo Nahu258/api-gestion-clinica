@@ -3,7 +3,7 @@
  */
 
 export const ROLES = {
-  ADMIN: { label: 'Administración general', inicio: '/panel-centro', destino: 'Panel de centro' },
+  ADMIN: { label: 'Administración general', inicio: '/admin', destino: 'Consola de administración' },
   OPERADOR_CENTRO: { label: 'Administración del centro', inicio: '/panel-centro', destino: 'Panel de centro' },
   MEDICO: { label: 'Médico de guardia', inicio: '/portal-medico', destino: 'Mi guardia' },
   PACIENTE: { label: 'Paciente', inicio: '/mi-historial', destino: 'Mi historial' },

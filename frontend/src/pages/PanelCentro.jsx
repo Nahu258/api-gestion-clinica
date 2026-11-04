@@ -5,11 +5,13 @@
  * - Bandeja de solicitudes ordenada por prioridad, con derivación al especialista.
  * - Equipo médico con disponibilidad en tiempo real (Redis) y carga de cada médico.
  * - Registro de atenciones cerradas con diagnóstico.
- * - El rol ADMIN puede elegir qué centro mirar.
+ * - El rol ADMIN entra al panel de un centro con ?centro=<id> desde la consola
+ *   de administración (Épica 5, AE5-05).
  * Se refresca cada 6 segundos.
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowClockwise,
   CheckCircle,
@@ -31,7 +33,7 @@ import {
   listarEspecialistasDisponiblesCentro,
   derivarSolicitud,
 } from '../api/atencion.js'
-import { obtenerCentroPorId, obtenerCentrosCercanos } from '../api/centros.js'
+import { obtenerCentroPorId } from '../api/centros.js'
 import { iniciales } from '../utils/roles.js'
 
 const ORDEN_PRIORIDAD = { urgente: 0, alta: 1, media: 2, baja: 3 }
@@ -87,8 +89,8 @@ export default function PanelCentro() {
   const { usuario, rol, centroId } = useAuth()
   const esAdminGlobal = rol === 'ADMIN'
 
-  const [centroSeleccionado, setCentroSeleccionado] = useState(centroId || null)
-  const [centrosAdmin, setCentrosAdmin] = useState([])
+  const [params] = useSearchParams()
+  const centroUrl = Number(params.get('centro')) || null
   const [centro, setCentro] = useState(null)
 
   const [solicitudes, setSolicitudes] = useState([])
@@ -112,29 +114,13 @@ export default function PanelCentro() {
   const [errorModal, setErrorModal] = useState(null)
   const [toast, setToast] = useState(null)
 
-  const idCentro = centroSeleccionado || centroId
+  // El ADMIN no tiene centro propio: lo elige desde /admin/instituciones
+  const idCentro = esAdminGlobal ? centroUrl : centroId
 
   useEffect(() => {
     const t = setInterval(() => setReloj(new Date()), 30000)
     return () => clearInterval(t)
   }, [])
-
-  // ADMIN: lista de hospitales y sanatorios para elegir
-  useEffect(() => {
-    if (!esAdminGlobal) return
-    obtenerCentrosCercanos({ lat: -27.39, lon: -55.91, radio_km: 30 })
-      .then((data) => {
-        const lista = (data.resultados || [])
-          .filter((c) => ['hospital', 'clinica'].includes(c.tipo))
-          .sort((a, b) => a.nombre.localeCompare(b.nombre))
-        setCentrosAdmin(lista)
-        if (!centroSeleccionado && lista.length) {
-          const boratti = lista.find((c) => c.nombre === 'Sanatorio Boratti')
-          setCentroSeleccionado((boratti || lista[0]).id)
-        }
-      })
-      .catch(() => {})
-  }, [esAdminGlobal]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!idCentro) return
@@ -272,6 +258,34 @@ export default function PanelCentro() {
 
   const nombreCentro = centro?.nombre || usuario?.centro_nombre || 'Centro de salud'
 
+  if (!idCentro) {
+    return (
+      <div className="ui-shell">
+        <Navbar />
+        <main className="ui-page">
+          <div className="ui-card">
+            <div className="ui-empty">
+              <div className="ui-empty__icon"><Tray size={22} /></div>
+              <p className="ui-empty__title">
+                {esAdminGlobal ? 'Elegí una institución' : 'Tu cuenta no tiene un centro asignado'}
+              </p>
+              <p className="ui-empty__text">
+                {esAdminGlobal
+                  ? 'El panel de guardia se abre desde el listado o el detalle de cada institución.'
+                  : 'Pedile al administrador general que te asigne a una institución.'}
+              </p>
+              {esAdminGlobal && (
+                <Link to="/admin/instituciones" className="ui-btn ui-btn--dark" style={{ marginTop: 16 }}>
+                  Ir a instituciones
+                </Link>
+              )}
+            </div>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="ui-shell">
       <Navbar />
@@ -287,16 +301,10 @@ export default function PanelCentro() {
             </div>
           </div>
           <div className="ui-pagehead__actions">
-            {esAdminGlobal && centrosAdmin.length > 0 && (
-              <select
-                className="ui-select"
-                style={{ width: 260 }}
-                value={idCentro || ''}
-                onChange={(e) => setCentroSeleccionado(Number(e.target.value))}
-                aria-label="Centro"
-              >
-                {centrosAdmin.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
+            {esAdminGlobal && (
+              <Link to={`/admin/instituciones/${idCentro}`} className="ui-btn ui-btn--quiet">
+                Ver institución
+              </Link>
             )}
             <button type="button" className="ui-btn" onClick={() => cargar(false)}>
               <ArrowClockwise size={16} />
