@@ -22,6 +22,7 @@ from apps.centros.views_admin import (
     AdminResumenAPIView,
 )
 from apps.centros.views_gestion import (
+    BuscarMedicoAPIView,
     CentroEspecialidadDetalleAPIView,
     CentroMedicoDetalleAPIView,
     CentroMedicosAPIView,
@@ -87,6 +88,11 @@ urlpatterns = [
         r"^centros/(?P<centro_id>\d+)/medicos/(?P<medico_id>\d+)/?$",
         CentroMedicoDetalleAPIView.as_view(),
         name="centro-medico-detalle",
+    ),
+    re_path(
+        r"^medicos/buscar/?$",
+        BuscarMedicoAPIView.as_view(),
+        name="medicos-buscar",
     ),
     # Épica 5 — AE5-14: resumen general de la red
     re_path(

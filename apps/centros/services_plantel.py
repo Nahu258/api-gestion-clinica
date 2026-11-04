@@ -363,6 +363,48 @@ def especialidad_legacy(especialidad: Especialidad) -> str:
     return codigo if codigo in validos else Medico.Especialidad.OTRA
 
 
+def buscar_medico_existente(matricula: str = "", email: str = "") -> list[dict]:
+    """
+    Busca fichas de médico por matrícula o email EXACTOS (sin distinguir
+    mayúsculas), para vincular a un médico que ya trabaja en otro centro.
+
+    La coincidencia exacta evita exponer el padrón completo de la red a los
+    operadores de cada institución.
+    """
+    from apps.clinica.models import Medico  # noqa: PLC0415
+
+    matricula = (matricula or "").strip()
+    email = (email or "").strip()
+    if not matricula and not email:
+        raise ValidationError({"matricula": ["Indicá la matrícula o el email del médico."]})
+
+    filtro = Q()
+    if matricula:
+        filtro |= Q(matricula__iexact=matricula)
+    if email:
+        filtro |= Q(perfiles__usuario__email__iexact=email)
+
+    resultado = []
+    for medico in Medico.objects.filter(filtro).distinct().order_by("nombre")[:10]:
+        centros = [
+            {"id": a.centro_id, "nombre": a.centro.nombre}
+            for a in medico.asignaciones_centro.filter(activo=True)
+            .select_related("centro")
+            .order_by("centro__nombre")
+        ]
+        unicos = list({c["id"]: c for c in centros}.values())
+        resultado.append(
+            {
+                "id": medico.id,
+                "nombre": medico.nombre,
+                "matricula": medico.matricula,
+                "tiene_cuenta": medico.perfiles.exists(),
+                "centros": unicos,
+            }
+        )
+    return resultado
+
+
 # ---------------------------------------------------------------------------
 # Helpers privados
 # ---------------------------------------------------------------------------
@@ -386,6 +428,8 @@ def _cuentas_por_medico(medicos) -> dict[int, dict]:
             "usuario_id": perfil.usuario_id,
             "email": perfil.usuario.email,
             "activo": perfil.usuario.is_active,
+            # Centro de la cuenta: el operador sólo gestiona cuentas de su centro
+            "centro_id": perfil.centro_id,
         }
     return cuentas
 

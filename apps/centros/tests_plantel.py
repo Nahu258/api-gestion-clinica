@@ -323,3 +323,43 @@ class PlantelMedicoTests(BasePlantel):
             403,
         )
         self.assertTrue(AsignacionMedico.objects.get(medico=self.medico, centro=self.centro_a).activo)
+
+
+class BuscarMedicoTests(BasePlantel):
+    URL = "/api/v1/medicos/buscar/"
+
+    def test_busca_por_matricula_o_email_exactos(self):
+        _usuario("sofia@test.com", Rol.MEDICO, centro=self.centro_a, medico=self.medico)
+        self._como(self.operador_b)
+
+        por_matricula = self.client.get(self.URL, {"matricula": "mn 1"})
+        self.assertEqual(por_matricula.status_code, 200)
+        r = por_matricula.data["resultados"][0]
+        self.assertEqual(r["id"], self.medico.id)
+        self.assertTrue(r["tiene_cuenta"])
+        self.assertEqual(r["centros"], [{"id": self.centro_a.id, "nombre": "Hospital A"}])
+
+        por_email = self.client.get(self.URL, {"email": "SOFIA@test.com"})
+        self.assertEqual(por_email.data["cantidad"], 1)
+
+    def test_no_hace_busqueda_parcial(self):
+        self._como(self.operador_b)
+        self.assertEqual(self.client.get(self.URL, {"matricula": "MN"}).data["cantidad"], 0)
+
+    def test_requiere_algun_criterio_y_rol(self):
+        self._como(self.operador_b)
+        self.assertEqual(self.client.get(self.URL).status_code, 400)
+        self._como(self.paciente)
+        self.assertEqual(self.client.get(self.URL, {"matricula": "MN 1"}).status_code, 403)
+
+    def test_vincular_medico_de_otro_centro(self):
+        """El operador B suma a la Dra. Sofía (de A) a su centro con medico_id."""
+        self._como(self.operador_b)
+        response = self.client.post(
+            f"/api/v1/centros/{self.centro_b.id}/especialidades/{self.pediatria.id}/doctores/",
+            {"medico_id": self.medico.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        plantel_b = self.client.get(f"/api/v1/centros/{self.centro_b.id}/medicos/").data
+        self.assertEqual([m["nombre"] for m in plantel_b["resultados"]], ["Dra. Sofía"])

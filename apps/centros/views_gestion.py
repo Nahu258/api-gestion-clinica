@@ -11,6 +11,7 @@ Por centro (ADMIN u OPERADOR_CENTRO del mismo centro):
     PATCH     /api/v1/centros/{id}/especialidades/{esp_id}/   → activo (+ forzar)
     GET       /api/v1/centros/{id}/medicos/                   → plantel agrupado por médico
     GET/PATCH /api/v1/centros/{id}/medicos/{medico_id}/       → datos y asignaciones
+    GET       /api/v1/medicos/buscar/?matricula=|email=       → vincular médico existente
 """
 
 from django.db.models import Q
@@ -149,3 +150,21 @@ class CentroMedicoDetalleAPIView(APIView):
         serializer.is_valid(raise_exception=True)
         plantel.actualizar_medico_plantel(centro, medico, serializer.validated_data)
         return Response(plantel.detalle_medico_plantel(centro, medico), status=status.HTTP_200_OK)
+
+
+class BuscarMedicoAPIView(APIView):
+    """
+    GET /api/v1/medicos/buscar/?matricula=MP 1234  |  ?email=medico@...
+
+    Coincidencia exacta, para "Vincular médico existente" (AE5-11).
+    Acceso: ADMIN u OPERADOR_CENTRO.
+    """
+
+    permission_classes = [IsOperadorCentro]
+
+    def get(self, request: Request) -> Response:
+        resultados = plantel.buscar_medico_existente(
+            matricula=request.query_params.get("matricula", ""),
+            email=request.query_params.get("email", ""),
+        )
+        return Response({"cantidad": len(resultados), "resultados": resultados}, status=status.HTTP_200_OK)

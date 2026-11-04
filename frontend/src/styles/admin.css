@@ -676,3 +676,10 @@
 .ui-picklist__item:disabled { cursor: wait; opacity: 0.7; }
 .ui-picklist__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ui-picklist__cta { font-size: 0.84rem; font-weight: 600; color: var(--accent); white-space: nowrap; }
+
+/* ── Plantel médico (AE5-11) ────────────────────────────────────────────── */
+
+.ui-inline-form { display: flex; gap: 8px; align-items: flex-start; }
+.ui-inline-form__field { flex: 1; min-width: 0; }
+.ui-inline-form > .ui-btn { margin-top: 24px; }
+.ui-picklist__item.is-selected { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }

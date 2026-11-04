@@ -123,3 +123,16 @@ export const listarMisGuardias = () => apiFetch('/medicos/mis-guardias/')
 // ── Resumen de la red (AE5-14) ───────────────────────────────────────────────
 
 export const obtenerResumenRed = (opciones = {}) => apiFetch('/admin/resumen/', opciones)
+
+// ── Plantel: vincular médicos existentes (AE5-11) ────────────────────────────
+
+/** Coincidencia exacta por matrícula o email (GET /medicos/buscar/). */
+export const buscarMedicoExistente = ({ matricula = '', email = '' }) =>
+  apiFetch('/medicos/buscar/', { query: { matricula, email } })
+
+/** Asigna un médico existente a una especialidad del centro. */
+export const asignarMedicoEspecialidad = (centroId, especialidadId, medicoId) =>
+  apiFetch(`/centros/${centroId}/especialidades/${especialidadId}/doctores/`, {
+    method: 'POST',
+    body: { medico_id: medicoId },
+  })
