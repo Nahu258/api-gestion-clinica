@@ -6,6 +6,7 @@ El campo `distancia_km` no está en el modelo: se inyecta desde el servicio.
 """
 
 from rest_framework import serializers
+from rest_framework.validators import UniqueValidator
 
 from .models import CentroEmergencia, Especialidad
 
@@ -165,3 +166,79 @@ class CentroAdminSerializer(serializers.ModelSerializer):
 
     def get_operadores(self, obj) -> int:
         return getattr(obj, "n_operadores", 0)
+
+
+# ---------------------------------------------------------------------------
+# Épica 5 — AE5-03: catálogo de especialidades y plantel por institución
+# ---------------------------------------------------------------------------
+
+class EspecialidadCatalogoSerializer(serializers.ModelSerializer):
+    """
+    Especialidad del catálogo global (entrada y salida).
+
+    `codigo` es opcional en el alta: si no viene se genera con slugify(nombre).
+    La unicidad de nombre y código se valida por campo.
+    """
+
+    codigo = serializers.SlugField(
+        max_length=50,
+        required=False,
+        validators=[
+            UniqueValidator(
+                queryset=Especialidad.objects.all(),
+                message="Ya existe una especialidad con este código.",
+            )
+        ],
+    )
+    centros = serializers.SerializerMethodField()
+    medicos = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Especialidad
+        fields = ["id", "nombre", "codigo", "descripcion", "icono", "centros", "medicos"]
+
+    def validate_nombre(self, valor: str) -> str:
+        valor = valor.strip()
+        if not valor:
+            raise serializers.ValidationError("El nombre no puede estar vacío.")
+        return valor
+
+    def validate(self, attrs):
+        from django.utils.text import slugify  # noqa: PLC0415
+
+        if self.instance is None and not attrs.get("codigo"):
+            codigo = slugify(attrs.get("nombre", ""))[:50]
+            if Especialidad.objects.filter(codigo=codigo).exists():
+                raise serializers.ValidationError(
+                    {"codigo": ["Ya existe una especialidad con este código."]}
+                )
+            attrs["codigo"] = codigo
+        return attrs
+
+    def get_centros(self, obj) -> int:
+        return getattr(obj, "n_centros", 0)
+
+    def get_medicos(self, obj) -> int:
+        return getattr(obj, "n_medicos", 0)
+
+
+class ActualizarEspecialidadCentroSerializer(serializers.Serializer):
+    """Payload de PATCH /centros/{id}/especialidades/{esp_id}/."""
+
+    activo = serializers.BooleanField()
+    forzar = serializers.BooleanField(required=False, default=False)
+
+
+class ActualizarMedicoPlantelSerializer(serializers.Serializer):
+    """Payload de PATCH /centros/{id}/medicos/{medico_id}/ (todos opcionales)."""
+
+    nombre = serializers.CharField(required=False, max_length=120)
+    matricula = serializers.CharField(required=False, allow_blank=True, max_length=50)
+    especialidad_ids = serializers.ListField(child=serializers.IntegerField(), required=False)
+    activo = serializers.BooleanField(required=False)
+
+    def validate_nombre(self, valor: str) -> str:
+        valor = valor.strip()
+        if not valor:
+            raise serializers.ValidationError("El nombre no puede estar vacío.")
+        return valor

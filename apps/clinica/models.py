@@ -13,6 +13,9 @@ class Medico(models.Model):
     matricula = models.CharField(
         max_length=50, blank=True, default="", verbose_name="Matrícula médica"
     )
+    # DEPRECADO (Épica 5, AE5-03): la especialidad real sale de
+    # centros.AsignacionMedico. Se conserva por compatibilidad y se deriva de
+    # la primera asignación activa (centros.services_plantel).
     especialidad = models.CharField(
         max_length=20,
         choices=Especialidad.choices,

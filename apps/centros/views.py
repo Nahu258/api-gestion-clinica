@@ -115,23 +115,29 @@ class CentroDetalleAPIView(APIView):
 
 class CentroEspecialidadesAPIView(APIView):
     """
-    GET  /api/v1/centros/{centro_id}/especialidades/
-         Retorna las especialidades ofrecidas por el centro.
+    GET  /api/v1/centros/{centro_id}/especialidades/[?incluir_inactivas=true]
+         Retorna las especialidades activas del centro (público; lo usa el
+         selector de derivación). Con `incluir_inactivas=true` (ADMIN u
+         operador del centro) devuelve todas, con estado y conteos.
 
     POST /api/v1/centros/{centro_id}/especialidades/
-         Asocia o crea una especialidad para el centro (solo ADMIN).
+         Vincula una especialidad del catálogo al centro (ADMIN u operador
+         del centro). Crear una especialidad nueva queda reservado a ADMIN.
     """
 
     def get_permissions(self):
-        from core.permissions import IsAdminUserRole
+        from core.permissions import IsAdminOOperadorDelCentro
 
         if self.request.method == "POST":
-            return [IsAdminUserRole()]
+            return [IsAdminOOperadorDelCentro()]
         return []
 
     def get(self, request: Request, centro_id: int) -> Response:
         from apps.centros.models import Especialidad
         from apps.centros.serializers import EspecialidadSerializer
+
+        if request.query_params.get("incluir_inactivas", "").lower() in ("true", "1"):
+            return self._get_gestion(request, centro_id)
 
         try:
             centro = CentroEmergencia.objects.get(pk=centro_id, activo=True)
@@ -148,24 +154,42 @@ class CentroEspecialidadesAPIView(APIView):
         data = EspecialidadSerializer(especialidades, many=True).data
         return Response(data, status=status.HTTP_200_OK)
 
+    def _get_gestion(self, request: Request, centro_id: int) -> Response:
+        from apps.centros import services_plantel
+        from core.permissions import IsAdminOOperadorDelCentro
+
+        if not IsAdminOOperadorDelCentro().has_permission(request, self):
+            self.permission_denied(request, message=IsAdminOOperadorDelCentro.message)
+
+        centro = services_plantel.obtener_centro(centro_id)
+        return Response(
+            services_plantel.especialidades_del_centro_gestion(centro),
+            status=status.HTTP_200_OK,
+        )
+
     def post(self, request: Request, centro_id: int) -> Response:
-        from apps.centros.models import Especialidad, CentroEspecialidad
+        from apps.centros import services_plantel
+        from apps.centros.models import Especialidad
         from apps.centros.serializers import (
             CrearEspecialidadCentroSerializer,
             EspecialidadSerializer,
         )
+        from core.permissions import obtener_rol_usuario
 
-        try:
-            centro = CentroEmergencia.objects.get(pk=centro_id, activo=True)
-        except CentroEmergencia.DoesNotExist:
-            return Response(
-                {"error": f"Centro de emergencia #{centro_id} no encontrado o inactivo."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        centro = services_plantel.obtener_centro(centro_id)
 
         serializer = CrearEspecialidadCentroSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         datos = serializer.validated_data
+
+        if not datos.get("especialidad_id") and obtener_rol_usuario(request.user) != "ADMIN":
+            self.permission_denied(
+                request,
+                message=(
+                    "Sólo podés vincular especialidades del catálogo. "
+                    "Pedile al administrador general que cree la especialidad."
+                ),
+            )
 
         if datos.get("especialidad_id"):
             try:
@@ -185,11 +209,7 @@ class CentroEspecialidadesAPIView(APIView):
                 },
             )
 
-        centro_esp, _ = CentroEspecialidad.objects.get_or_create(
-            centro=centro, especialidad=especialidad
-        )
-        centro_esp.activo = True
-        centro_esp.save(update_fields=["activo"])
+        services_plantel.vincular_especialidad(centro, especialidad)
 
         return Response(
             EspecialidadSerializer(especialidad).data,
@@ -203,14 +223,15 @@ class CentroEspecialidadDoctoresAPIView(APIView):
          Retorna los doctores asignados a ese centro y especialidad.
 
     POST /api/v1/centros/{centro_id}/especialidades/{especialidad_id}/doctores/
-         Asigna o registra un doctor en el centro y especialidad (solo ADMIN).
+         Asigna o registra un doctor en el centro y especialidad
+         (ADMIN u operador del centro).
     """
 
     def get_permissions(self):
-        from core.permissions import IsAdminUserRole
+        from core.permissions import IsAdminOOperadorDelCentro
 
         if self.request.method == "POST":
-            return [IsAdminUserRole()]
+            return [IsAdminOOperadorDelCentro()]
         return []
 
     def get(self, request: Request, centro_id: int, especialidad_id: int) -> Response:
@@ -287,10 +308,12 @@ class CentroEspecialidadDoctoresAPIView(APIView):
         else:
             from apps.clinica.models import Medico
 
+            from apps.centros.services_plantel import especialidad_legacy
+
             medico = Medico.objects.create(
                 nombre=datos["nombre"],
                 matricula=datos.get("matricula", ""),
-                especialidad=Medico.Especialidad.CLINICA_MEDICA,
+                especialidad=especialidad_legacy(especialidad),
             )
 
         asignacion, _ = AsignacionMedico.objects.get_or_create(
@@ -300,6 +323,10 @@ class CentroEspecialidadDoctoresAPIView(APIView):
         )
         asignacion.activo = True
         asignacion.save(update_fields=["activo"])
+
+        from apps.centros.services_plantel import sincronizar_especialidad_legacy
+
+        sincronizar_especialidad_legacy(medico)
 
         return Response(
             DoctorEspecialidadSerializer(asignacion).data,

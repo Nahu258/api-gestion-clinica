@@ -20,6 +20,13 @@ from apps.centros.views_admin import (
     AdminCentroDetalleAPIView,
     AdminCentrosAPIView,
 )
+from apps.centros.views_gestion import (
+    CentroEspecialidadDetalleAPIView,
+    CentroMedicoDetalleAPIView,
+    CentroMedicosAPIView,
+    EspecialidadCatalogoDetalleAPIView,
+    EspecialidadesCatalogoAPIView,
+)
 
 app_name = "centros"
 
@@ -53,6 +60,32 @@ urlpatterns = [
         r"^centros/(?P<centro_id>\d+)/solicitudes/?$",
         CentroSolicitudesAPIView.as_view(),
         name="centro-solicitudes",
+    ),
+    # Épica 5 — AE5-03: catálogo de especialidades y plantel por centro
+    re_path(
+        r"^especialidades/?$",
+        EspecialidadesCatalogoAPIView.as_view(),
+        name="especialidades-catalogo",
+    ),
+    re_path(
+        r"^especialidades/(?P<pk>\d+)/?$",
+        EspecialidadCatalogoDetalleAPIView.as_view(),
+        name="especialidad-catalogo-detalle",
+    ),
+    re_path(
+        r"^centros/(?P<centro_id>\d+)/especialidades/(?P<especialidad_id>\d+)/?$",
+        CentroEspecialidadDetalleAPIView.as_view(),
+        name="centro-especialidad-detalle",
+    ),
+    re_path(
+        r"^centros/(?P<centro_id>\d+)/medicos/?$",
+        CentroMedicosAPIView.as_view(),
+        name="centro-medicos",
+    ),
+    re_path(
+        r"^centros/(?P<centro_id>\d+)/medicos/(?P<medico_id>\d+)/?$",
+        CentroMedicoDetalleAPIView.as_view(),
+        name="centro-medico-detalle",
     ),
     # Épica 5 — AE5-01: consola del superadmin (gestión de instituciones)
     re_path(

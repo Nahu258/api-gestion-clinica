@@ -176,3 +176,31 @@ class IsStaffOrOwner(BasePermission):
 
         return False
 
+
+
+class IsAdminOOperadorDelCentro(BasePermission):
+    """
+    Épica 5 (AE5-03): ADMIN sobre cualquier centro, u OPERADOR_CENTRO sólo
+    sobre el centro que tiene asignado en su perfil.
+
+    Compara `perfil.centro_id` con el kwarg `centro_id` de la URL
+    (o el que declare la vista en `centro_url_kwarg`).
+    """
+
+    message = "Sólo el administrador general o un operador de este centro pueden realizar esta acción."
+
+    def has_permission(self, request, view) -> bool:
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+
+        rol = obtener_rol_usuario(user)
+        if rol == "ADMIN":
+            return True
+        if rol != "OPERADOR_CENTRO":
+            return False
+
+        kwarg = getattr(view, "centro_url_kwarg", "centro_id")
+        centro_url = view.kwargs.get(kwarg)
+        centro_perfil = getattr(getattr(user, "perfil", None), "centro_id", None)
+        return bool(centro_perfil) and str(centro_perfil) == str(centro_url)

@@ -363,26 +363,16 @@ def _crear_o_vincular_medico(datos: dict, usuario):
 
 def _asignar_especialidades(medico, centro, especialidad_ids: list[int]) -> None:
     """Asigna el médico a especialidades ACTIVAS del centro."""
-    from apps.centros.models import AsignacionMedico, CentroEspecialidad  # noqa: PLC0415
+    from apps.centros.models import AsignacionMedico  # noqa: PLC0415
+    from apps.centros.services_plantel import (  # noqa: PLC0415
+        sincronizar_especialidad_legacy,
+        validar_especialidades_activas,
+    )
 
     ids = list(dict.fromkeys(especialidad_ids))
     if not ids:
         return
-
-    habilitadas = set(
-        CentroEspecialidad.objects.filter(
-            centro=centro, especialidad_id__in=ids, activo=True
-        ).values_list("especialidad_id", flat=True)
-    )
-    faltantes = [i for i in ids if i not in habilitadas]
-    if faltantes:
-        raise ValidationError(
-            {
-                "especialidad_ids": [
-                    f"Las especialidades {faltantes} no están activas en {centro.nombre}."
-                ]
-            }
-        )
+    validar_especialidades_activas(centro, ids)
 
     for especialidad_id in ids:
         asignacion, _ = AsignacionMedico.objects.get_or_create(
@@ -391,3 +381,5 @@ def _asignar_especialidades(medico, centro, especialidad_ids: list[int]) -> None
         if not asignacion.activo:
             asignacion.activo = True
             asignacion.save(update_fields=["activo"])
+
+    sincronizar_especialidad_legacy(medico)

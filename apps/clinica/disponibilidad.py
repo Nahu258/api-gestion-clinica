@@ -87,6 +87,12 @@ def listar_especialistas_disponibles_centro(
     if especialidad_id:
         query = query.filter(especialidad_id=especialidad_id)
 
+    # Épica 5 (AE5-03): una especialidad desactivada en el centro sale del
+    # selector de derivación aunque el médico conserve la asignación.
+    from apps.centros.services_plantel import filtrar_especialidades_inactivas
+
+    query = filtrar_especialidades_inactivas(query, centro_id)
+
     medicos_vistos = set()
     resultados = []
 

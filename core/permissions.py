@@ -9,6 +9,7 @@ from apps.auth_usuarios.permissions import (
     IsMedicoEspecialista,
     IsPacienteRegistrado,
     IsStaffOrOwner,
+    IsAdminOOperadorDelCentro,
     obtener_rol_usuario,
 )
 
@@ -24,6 +25,7 @@ __all__ = [
     "IsMedicoEspecialista",
     "IsPacienteRegistrado",
     "IsStaffOrOwner",
+    "IsAdminOOperadorDelCentro",
     "obtener_rol_usuario",
     "IsMedicoAsignadoOAdmin",
     "CanViewFichaClinica",
