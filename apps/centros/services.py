@@ -87,3 +87,93 @@ def _validar_tipo(tipo: str) -> None:
         raise DatosInvalidos(
             f"Tipo '{tipo}' no reconocido. Tipos válidos: {validos}."
         )
+
+
+# ---------------------------------------------------------------------------
+# Épica 5 — AE5-01: gestión de instituciones
+# ---------------------------------------------------------------------------
+
+def centros_con_conteos():
+    """
+    Queryset de TODOS los centros (incluye inactivos) anotado con:
+      - n_especialidades_activas: especialidades vinculadas y activas.
+      - n_medicos_asignados: médicos distintos con asignación activa.
+      - n_operadores: cuentas OPERADOR_CENTRO activas del centro.
+    """
+    from django.db.models import Count, Q  # noqa: PLC0415
+
+    return CentroEmergencia.objects.annotate(
+        n_especialidades_activas=Count(
+            "centro_especialidades",
+            filter=Q(centro_especialidades__activo=True),
+            distinct=True,
+        ),
+        n_medicos_asignados=Count(
+            "medicos_asignados__medico",
+            filter=Q(medicos_asignados__activo=True),
+            distinct=True,
+        ),
+        n_operadores=Count(
+            "perfiles",
+            filter=Q(perfiles__rol="OPERADOR_CENTRO", perfiles__usuario__is_active=True),
+            distinct=True,
+        ),
+    )
+
+
+def filtrar_centros_admin(params) -> "QuerySet":
+    """
+    Aplica los filtros del listado de administración.
+
+    Filtros: q (nombre o dirección), tipo, ciudad, activo (true/false).
+    """
+    from django.db.models import Q  # noqa: PLC0415
+
+    qs = centros_con_conteos()
+
+    q = (params.get("q") or "").strip()
+    if q:
+        qs = qs.filter(Q(nombre__icontains=q) | Q(direccion__icontains=q))
+
+    tipo = (params.get("tipo") or "").strip()
+    if tipo:
+        _validar_tipo(tipo)
+        qs = qs.filter(tipo=tipo)
+
+    ciudad = (params.get("ciudad") or "").strip()
+    if ciudad:
+        qs = qs.filter(ciudad__iexact=ciudad)
+
+    activo = params.get("activo")
+    if activo not in (None, ""):
+        qs = qs.filter(activo=_parsear_bool(activo, "activo"))
+
+    return qs.order_by("nombre", "id")
+
+
+def obtener_centro_admin(centro_id: int) -> CentroEmergencia:
+    """Devuelve el centro (activo o no) con sus conteos, o 404."""
+    from core.exceptions import RecursoNoEncontrado  # noqa: PLC0415
+
+    centro = centros_con_conteos().filter(pk=centro_id).first()
+    if centro is None:
+        raise RecursoNoEncontrado(f"No existe un centro con id {centro_id}.")
+    return centro
+
+
+def cambiar_estado_centro(centro_id: int, activo: bool) -> CentroEmergencia:
+    """Baja/alta lógica: nunca se borra el centro (preserva historial)."""
+    centro = obtener_centro_admin(centro_id)
+    if centro.activo != activo:
+        centro.activo = activo
+        centro.save(update_fields=["activo"])
+    return centro
+
+
+def _parsear_bool(valor, nombre: str) -> bool:
+    texto = str(valor).strip().lower()
+    if texto in {"true", "1", "si", "sí", "yes"}:
+        return True
+    if texto in {"false", "0", "no"}:
+        return False
+    raise DatosInvalidos(f"'{nombre}' debe ser true o false. Recibido: '{valor}'.")

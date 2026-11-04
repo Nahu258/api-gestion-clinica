@@ -96,3 +96,72 @@ class AsignarDoctorSerializer(serializers.Serializer):
             )
         return attrs
 
+
+
+# ---------------------------------------------------------------------------
+# Épica 5 — AE5-01: gestión de instituciones (consola del superadmin)
+# ---------------------------------------------------------------------------
+
+class CentroAdminSerializer(serializers.ModelSerializer):
+    """
+    Representación completa de un centro para la consola del superadmin.
+
+    Sirve tanto de entrada (POST/PATCH) como de salida. Los conteos se
+    calculan con annotate() en el servicio; si el queryset no los trae
+    (ej. recién creado) se devuelven en 0.
+    """
+
+    tipo_legible = serializers.CharField(source="get_tipo_display", read_only=True)
+    latitud = serializers.DecimalField(
+        max_digits=10, decimal_places=7, min_value=-90, max_value=90
+    )
+    longitud = serializers.DecimalField(
+        max_digits=10, decimal_places=7, min_value=-180, max_value=180
+    )
+    especialidades_activas = serializers.SerializerMethodField()
+    medicos_asignados = serializers.SerializerMethodField()
+    operadores = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CentroEmergencia
+        fields = [
+            "id",
+            "nombre",
+            "tipo",
+            "tipo_legible",
+            "direccion",
+            "ciudad",
+            "provincia",
+            "pais",
+            "latitud",
+            "longitud",
+            "telefono",
+            "atiende_24h",
+            "activo",
+            "creado_en",
+            "especialidades_activas",
+            "medicos_asignados",
+            "operadores",
+        ]
+        read_only_fields = ["id", "activo", "creado_en"]
+
+    def validate_nombre(self, valor: str) -> str:
+        valor = valor.strip()
+        if not valor:
+            raise serializers.ValidationError("El nombre no puede estar vacío.")
+        return valor
+
+    def validate_direccion(self, valor: str) -> str:
+        valor = valor.strip()
+        if not valor:
+            raise serializers.ValidationError("La dirección no puede estar vacía.")
+        return valor
+
+    def get_especialidades_activas(self, obj) -> int:
+        return getattr(obj, "n_especialidades_activas", 0)
+
+    def get_medicos_asignados(self, obj) -> int:
+        return getattr(obj, "n_medicos_asignados", 0)
+
+    def get_operadores(self, obj) -> int:
+        return getattr(obj, "n_operadores", 0)

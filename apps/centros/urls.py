@@ -14,6 +14,12 @@ from apps.centros.views import (
     CentroSolicitudesAPIView,
     CentrosCercanosAPIView,
 )
+from apps.centros.views_admin import (
+    AdminCentroActivarAPIView,
+    AdminCentroDesactivarAPIView,
+    AdminCentroDetalleAPIView,
+    AdminCentrosAPIView,
+)
 
 app_name = "centros"
 
@@ -47,6 +53,27 @@ urlpatterns = [
         r"^centros/(?P<centro_id>\d+)/solicitudes/?$",
         CentroSolicitudesAPIView.as_view(),
         name="centro-solicitudes",
+    ),
+    # Épica 5 — AE5-01: consola del superadmin (gestión de instituciones)
+    re_path(
+        r"^admin/centros/?$",
+        AdminCentrosAPIView.as_view(),
+        name="admin-centros",
+    ),
+    re_path(
+        r"^admin/centros/(?P<pk>\d+)/?$",
+        AdminCentroDetalleAPIView.as_view(),
+        name="admin-centro-detalle",
+    ),
+    re_path(
+        r"^admin/centros/(?P<pk>\d+)/desactivar/?$",
+        AdminCentroDesactivarAPIView.as_view(),
+        name="admin-centro-desactivar",
+    ),
+    re_path(
+        r"^admin/centros/(?P<pk>\d+)/activar/?$",
+        AdminCentroActivarAPIView.as_view(),
+        name="admin-centro-activar",
     ),
 ]
 
