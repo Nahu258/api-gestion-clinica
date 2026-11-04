@@ -683,3 +683,92 @@
 .ui-inline-form__field { flex: 1; min-width: 0; }
 .ui-inline-form > .ui-btn { margin-top: 24px; }
 .ui-picklist__item.is-selected { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
+
+/* ── Cronograma de guardias (AE5-12) ────────────────────────────────────── */
+
+.ui-cobertura { margin-bottom: 16px; }
+.ui-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.ui-cobertura__pct { font-family: var(--font-mono); font-size: 0.76rem; opacity: 0.75; }
+.ui-cobertura__pct.is-low { color: var(--accent); opacity: 1; font-weight: 600; }
+.ui-chip--ink .ui-cobertura__pct.is-low { color: #ffb3b8; }
+
+.ui-sched { overflow-x: auto; }
+.ui-sched__head,
+.ui-sched__body { display: grid; grid-template-columns: 56px repeat(7, minmax(110px, 1fr)); min-width: 840px; }
+.ui-sched__head { border-bottom: 1px solid var(--line); }
+.ui-sched__day { padding: 10px 8px; font-size: 0.8rem; font-weight: 600; color: var(--ink-2); border-left: 1px solid var(--line); }
+.ui-sched__day.is-today { color: var(--accent); }
+.ui-sched__hours { border-right: 1px solid var(--line); }
+.ui-sched__hour { font-family: var(--font-mono); font-size: 0.7rem; color: var(--ink-3); padding: 2px 6px; text-align: right; }
+
+.ui-sched__col {
+  position: relative;
+  border-left: 1px solid var(--line);
+  background-image: linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+  cursor: copy;
+}
+
+.ui-sched__gap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(135deg, var(--accent-soft) 0 6px, transparent 6px 12px);
+  border-left: 3px solid var(--accent);
+}
+
+.ui-sched__block {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+  padding: 3px 6px;
+  border: 1px solid var(--c);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--c) 14%, var(--surface));
+  color: var(--ink);
+  text-align: left;
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+
+.ui-sched__block:hover { background: color-mix(in srgb, var(--c) 24%, var(--surface)); }
+.ui-sched__block.is-paused { opacity: 0.55; border-style: dashed; }
+.ui-sched__block.is-conflict,
+.ui-sched-list__item.is-conflict { outline: 2px solid var(--accent); outline-offset: 1px; animation: ui-pulso 1s ease-in-out 3; }
+.ui-sched__name { font-size: 0.74rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui-sched__time { font-family: var(--font-mono); font-size: 0.68rem; color: var(--ink-2); }
+
+@keyframes ui-pulso { 50% { outline-color: transparent; } }
+
+.ui-sched-list { display: none; }
+.ui-sched-list__gap { margin: 0 16px 10px; font-size: 0.8rem; color: var(--accent); }
+.ui-sched-list__item {
+  width: 100%;
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 10px 16px;
+  border: none;
+  border-left: 4px solid var(--c);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+.ui-sched-list__who { display: flex; flex-direction: column; min-width: 0; }
+
+.ui-btn--danger { color: var(--accent); }
+.ui-week__where { display: block; font-family: var(--font-ui); font-size: 0.68rem; opacity: 0.75; margin-top: 2px; }
+
+@media (max-width: 720px) {
+  .ui-sched { display: none; }
+  .ui-sched-list { display: grid; gap: 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-sched__block.is-conflict, .ui-sched-list__item.is-conflict { animation: none; }
+}

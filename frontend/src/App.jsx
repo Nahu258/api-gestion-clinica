@@ -23,6 +23,7 @@ import Resumen from './pages/admin/Resumen.jsx'
 import GestionInicio from './pages/gestion/GestionInicio.jsx'
 import EspecialidadesCentro from './pages/gestion/EspecialidadesCentro.jsx'
 import MedicosCentro from './pages/gestion/MedicosCentro.jsx'
+import GuardiasCentro from './pages/gestion/GuardiasCentro.jsx'
 
 /**
  * App - enrutador raíz de EmergenciaYA con RBAC (Épica 4 issue #26).
@@ -51,7 +52,7 @@ export default function App() {
               <Route index element={<GestionInicio />} />
               <Route path="especialidades" element={<EspecialidadesCentro />} />
               <Route path="medicos" element={<MedicosCentro />} />
-              <Route path="guardias" element={<EnConstruccion titulo="Guardias programadas" />} />
+              <Route path="guardias" element={<GuardiasCentro />} />
             </Route>
           </Route>
 

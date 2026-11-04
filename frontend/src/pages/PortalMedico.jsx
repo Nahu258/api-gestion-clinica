@@ -22,6 +22,7 @@ import {
 } from '@phosphor-icons/react'
 import { useAuth } from '../context/AuthContext.jsx'
 import Navbar from '../components/Navbar.jsx'
+import { listarMisGuardias } from '../api/admin.js'
 import {
   obtenerMiDisponibilidad,
   actualizarMiDisponibilidad,
@@ -95,6 +96,7 @@ export default function PortalMedico() {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(null)
   const [iniciandoId, setIniciandoId] = useState(null)
+  const [misGuardias, setMisGuardias] = useState(null)
 
   const cargarPerfil = useCallback(async () => {
     try {
@@ -104,6 +106,11 @@ export default function PortalMedico() {
     } catch (err) {
       setError(err.message)
     }
+    // Cronograma completo (todas las instituciones), sólo lectura: lo carga
+    // el administrador de cada centro (AE5-12).
+    listarMisGuardias()
+      .then((r) => setMisGuardias((r.guardias || []).filter((g) => g.en_guardia_activa)))
+      .catch(() => setMisGuardias(null))
   }, [])
 
   const cargarCola = useCallback(async (silencioso = false) => {
@@ -174,7 +181,8 @@ export default function PortalMedico() {
     [cola]
   )
 
-  const guardias = perfil?.guardias || []
+  const guardias = misGuardias || perfil?.guardias || []
+  const variosCentros = new Set(guardias.map((g) => g.centro_id)).size > 1
   const proxima = proximaGuardia(guardias)
   const enConsulta = cola.filter((s) => s.estado === 'en_atencion').length
   const centroNombre = usuario?.centro_nombre || guardias[0]?.centro_nombre
@@ -343,9 +351,9 @@ export default function PortalMedico() {
 
         <section className="ui-card" style={{ marginTop: 20 }} aria-label="Mis guardias">
           <div className="ui-card__head">
-            <h2 className="ui-h2">Mis guardias de la semana</h2>
+            <h2 className="ui-h2">Mis próximas guardias</h2>
             <span className="ui-muted" style={{ fontSize: '0.82rem', display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-              <CalendarBlank size={15} />{centroNombre}
+              <CalendarBlank size={15} />{variosCentros ? 'Varias instituciones' : centroNombre} · las carga el administrador del centro
             </span>
           </div>
           <div className="ui-card__pad">
@@ -359,7 +367,10 @@ export default function PortalMedico() {
                       <div className="ui-week__none">Libre</div>
                     ) : (
                       delDia.map((g) => (
-                        <div key={g.id} className="ui-week__slot">{g.hora_inicio} a {g.hora_fin}</div>
+                        <div key={g.id} className="ui-week__slot" title={g.centro_nombre}>
+                          {g.hora_inicio} a {g.hora_fin}
+                          {variosCentros && <span className="ui-week__where">{g.centro_nombre}</span>}
+                        </div>
                       ))
                     )}
                   </div>
