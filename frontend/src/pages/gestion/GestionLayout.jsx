@@ -17,11 +17,24 @@ export function useCentroGestion() {
   const [params] = useSearchParams()
   const desdeUrl = Number(params.get('centro')) || null
   const esAdmin = rol === 'ADMIN'
+  const sufijo = esAdmin && desdeUrl ? `?centro=${desdeUrl}` : ''
+
+  /** Ruta a una sección de gestión conservando ?centro= (ADMIN) más parámetros extra. */
+  const ruta = (seccion = '', extra = {}) => {
+    const qs = new URLSearchParams(esAdmin && desdeUrl ? { centro: String(desdeUrl) } : {})
+    Object.entries(extra).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') qs.set(k, v)
+    })
+    const base = seccion ? `/panel-centro/gestion/${seccion}` : '/panel-centro/gestion'
+    return qs.toString() ? `${base}?${qs}` : base
+  }
+
   return {
     esAdmin,
     centroId: esAdmin ? desdeUrl : centroId,
     centroNombre: esAdmin ? '' : usuario?.centro_nombre || '',
-    sufijo: esAdmin && desdeUrl ? `?centro=${desdeUrl}` : '',
+    sufijo,
+    ruta,
   }
 }
 

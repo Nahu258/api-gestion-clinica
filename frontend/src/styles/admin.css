@@ -624,3 +624,55 @@
 }
 
 .ui-alertrow { padding: 14px 16px; }
+
+/* ── Gestión de la institución: portada y especialidades (AE5-10) ───────── */
+
+.ui-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.ui-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.15s var(--ease);
+}
+
+.ui-tile:hover { border-color: var(--line-strong); }
+.ui-tile__title { font-weight: 650; font-size: 1rem; margin-top: 4px; }
+.ui-tile__text { color: var(--ink-2); font-size: 0.88rem; line-height: 1.5; flex: 1; }
+.ui-tile__cta { display: inline-flex; align-items: center; gap: 4px; font-size: 0.84rem; font-weight: 600; color: var(--accent); }
+
+.ui-picklist {
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.ui-picklist li + li { border-top: 1px solid var(--line); }
+
+.ui-picklist__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: none;
+  background: var(--surface);
+  text-align: left;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.ui-picklist__item:hover:not(:disabled) { background: var(--surface-2); }
+.ui-picklist__item:disabled { cursor: wait; opacity: 0.7; }
+.ui-picklist__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ui-picklist__cta { font-size: 0.84rem; font-weight: 600; color: var(--accent); white-space: nowrap; }
