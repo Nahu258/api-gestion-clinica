@@ -562,3 +562,48 @@
   padding: 10px 14px;
   border-top: 1px solid var(--line);
 }
+
+/* ── Catálogo de especialidades (AE5-08) ────────────────────────────────── */
+
+.ui-icon-tile {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-sm);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ui-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-width: 48ch;
+  color: var(--ink-2);
+}
+
+.ui-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 6px;
+}
+
+.ui-icon-option {
+  height: 44px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink-2);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.ui-icon-option:hover { background: var(--surface-2); color: var(--ink); }
+.ui-icon-option.is-active { border-color: var(--ink); background: var(--ink); color: #fafafa; }
+.ui-icon-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.ui-rows--flush .ui-row { padding-left: 0; padding-right: 0; }
