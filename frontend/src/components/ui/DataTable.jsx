@@ -95,9 +95,11 @@ export default function DataTable({
 
   const totalPaginas = Math.max(1, Math.ceil(ordenadas.length / pageSize))
 
+  // Volver a la primera página al buscar; si los datos se refrescan (polling)
+  // se conserva la página y el efecto de abajo la ajusta si quedó fuera de rango.
   useEffect(() => {
     setPagina(1)
-  }, [busqueda, rows])
+  }, [busqueda])
 
   useEffect(() => {
     if (pagina > totalPaginas) setPagina(totalPaginas)

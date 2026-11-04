@@ -119,3 +119,7 @@ export const eliminarGuardia = (centroId, guardiaId) =>
   apiFetch(`/centros/${centroId}/guardias/${guardiaId}/`, { method: 'DELETE' })
 
 export const listarMisGuardias = () => apiFetch('/medicos/mis-guardias/')
+
+// ── Resumen de la red (AE5-14) ───────────────────────────────────────────────
+
+export const obtenerResumenRed = (opciones = {}) => apiFetch('/admin/resumen/', opciones)

@@ -88,3 +88,17 @@ class AdminCentroActivarAPIView(APIView):
     def post(self, request: Request, pk: int) -> Response:
         centro = services.cambiar_estado_centro(pk, activo=True)
         return Response(CentroAdminSerializer(centro).data, status=status.HTTP_200_OK)
+
+
+class AdminResumenAPIView(APIView):
+    """
+    GET /api/v1/admin/resumen/ — Épica 5, AE5-14 (#44).
+
+    KPIs de la red, estado de guardia por institución y alertas de
+    configuración (centros sin especialidades, médicos u operador).
+    """
+
+    permission_classes = [IsAdminUserRole]
+
+    def get(self, request: Request) -> Response:
+        return Response(services.resumen_de_la_red(), status=status.HTTP_200_OK)

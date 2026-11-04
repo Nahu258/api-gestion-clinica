@@ -19,6 +19,7 @@ import InstitucionForm from './pages/admin/InstitucionForm.jsx'
 import InstitucionDetalle from './pages/admin/InstitucionDetalle.jsx'
 import Especialidades from './pages/admin/Especialidades.jsx'
 import Usuarios from './pages/admin/Usuarios.jsx'
+import Resumen from './pages/admin/Resumen.jsx'
 
 /**
  * App - enrutador raíz de EmergenciaYA con RBAC (Épica 4 issue #26).
@@ -54,7 +55,7 @@ export default function App() {
           {/* Consola del superadmin */}
           <Route element={<RoleGuard allowedRoles={['ADMIN']} />}>
             <Route path="/admin" element={<AdminLayout />}>
-              <Route index element={<EnConstruccion titulo="Resumen de la red" />} />
+              <Route index element={<Resumen />} />
               <Route path="instituciones" element={<Instituciones />} />
               <Route path="instituciones/nueva" element={<InstitucionForm />} />
               <Route path="instituciones/:id" element={<InstitucionDetalle />} />

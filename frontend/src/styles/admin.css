@@ -613,3 +613,14 @@
 .ui-nowrap { white-space: nowrap; }
 
 .ui-chip--lg { height: 32px; padding: 0 14px; font-size: 0.84rem; }
+
+/* ── Resumen de la red (AE5-14) ─────────────────────────────────────────── */
+
+.ui-text-accent { color: var(--accent); font-weight: 600; }
+
+@media (min-width: 900px) {
+  .ui-kpis--3x2 .ui-stat:nth-child(n + 4) { border-top: 1px solid var(--line); }
+  .ui-kpis--3x2 .ui-stat:nth-child(3n + 1) { border-left: none; }
+}
+
+.ui-alertrow { padding: 14px 16px; }

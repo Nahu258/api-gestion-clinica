@@ -177,3 +177,129 @@ def _parsear_bool(valor, nombre: str) -> bool:
     if texto in {"false", "0", "no"}:
         return False
     raise DatosInvalidos(f"'{nombre}' debe ser true o false. Recibido: '{valor}'.")
+
+
+# ---------------------------------------------------------------------------
+# Épica 5 — AE5-14: resumen general de la red (consola del superadmin)
+# ---------------------------------------------------------------------------
+
+# Las alertas y el estado de guardias se calculan sólo para centros de salud
+# con guardia propia: bomberos, policía o SAME no tienen especialidades ni
+# plantel, y marcarlos como "sin médicos" sería ruido.
+TIPOS_CON_GUARDIA = ("hospital", "clinica", "upa")
+
+ESTADOS_EN_ESPERA = ("pendiente", "aceptado", "en_camino")
+ESTADOS_EN_CURSO = ("derivado", "en_atencion")
+
+
+def resumen_de_la_red(ahora=None) -> dict:
+    """
+    KPIs globales, estado de guardia por institución y alertas de configuración.
+
+    `medicos_disponibles` es None (global y por centro) si Redis no responde.
+    """
+    from collections import defaultdict  # noqa: PLC0415
+
+    from django.db.models import Count, Q  # noqa: PLC0415
+    from django.utils import timezone  # noqa: PLC0415
+
+    from apps.atencion.models import SolicitudAtencion  # noqa: PLC0415
+    from apps.centros.models import AsignacionMedico  # noqa: PLC0415
+    from apps.centros.services_plantel import _estados_en_tiempo_real  # noqa: PLC0415
+
+    ahora = ahora or timezone.now()
+    inicio_dia = timezone.localtime(ahora).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    centros = list(centros_con_conteos().filter(activo=True).order_by("nombre"))
+    inactivas = CentroEmergencia.objects.filter(activo=False).count()
+
+    # Médicos con asignación activa en centros activos, agrupados por centro
+    medicos_por_centro = defaultdict(set)
+    for centro_id, medico_id in AsignacionMedico.objects.filter(
+        activo=True, centro__activo=True
+    ).values_list("centro_id", "medico_id"):
+        medicos_por_centro[centro_id].add(medico_id)
+    todos_los_medicos = set().union(*medicos_por_centro.values()) if medicos_por_centro else set()
+    estados = _estados_en_tiempo_real(todos_los_medicos)
+
+    # Solicitudes abiertas de centros activos
+    abiertas = list(
+        SolicitudAtencion.objects.filter(
+            centro__activo=True, estado__in=ESTADOS_EN_ESPERA + ESTADOS_EN_CURSO
+        ).values("centro_id", "estado", "creado_en")
+    )
+    atendidas_hoy = dict(
+        SolicitudAtencion.objects.filter(estado="atendido", atendido_en__gte=inicio_dia)
+        .order_by()
+        .values_list("centro_id")
+        .annotate(n=Count("id"))
+    )
+
+    por_centro = defaultdict(lambda: {"espera": [], "curso": 0})
+    for s in abiertas:
+        if s["estado"] in ESTADOS_EN_ESPERA:
+            por_centro[s["centro_id"]]["espera"].append(s["creado_en"])
+        else:
+            por_centro[s["centro_id"]]["curso"] += 1
+
+    def contar(*estados_):
+        return sum(1 for s in abiertas if s["estado"] in estados_)
+
+    guardias = []
+    alertas = []
+    for c in centros:
+        if c.tipo not in TIPOS_CON_GUARDIA:
+            continue
+        medicos = medicos_por_centro.get(c.id, set())
+        espera = por_centro[c.id]["espera"]
+        promedio = (
+            round(sum((ahora - t).total_seconds() for t in espera) / len(espera) / 60)
+            if espera else None
+        )
+        guardias.append(
+            {
+                "centro_id": c.id,
+                "centro_nombre": c.nombre,
+                "tipo": c.tipo,
+                "en_espera": len(espera),
+                "en_curso": por_centro[c.id]["curso"],
+                "atendidas_hoy": atendidas_hoy.get(c.id, 0),
+                "medicos": len(medicos),
+                "medicos_disponibles": (
+                    None if estados is None
+                    else sum(1 for m in medicos if estados.get(m) == "DISPONIBLE")
+                ),
+                "espera_promedio_min": promedio,
+            }
+        )
+
+        faltantes = []
+        if not c.n_especialidades_activas:
+            faltantes.append(("sin_especialidades", "No tiene especialidades activas."))
+        if not medicos:
+            faltantes.append(("sin_medicos", "No tiene médicos asignados."))
+        if not c.n_operadores:
+            faltantes.append(("sin_operador", "No tiene un administrador asignado."))
+        for tipo, mensaje in faltantes:
+            alertas.append(
+                {"centro_id": c.id, "centro_nombre": c.nombre, "tipo": tipo, "mensaje": mensaje}
+            )
+
+    return {
+        "generado_en": ahora,
+        "kpis": {
+            "instituciones_activas": len(centros),
+            "instituciones_inactivas": inactivas,
+            "medicos_disponibles": (
+                None if estados is None
+                else sum(1 for e in estados.values() if e == "DISPONIBLE")
+            ),
+            "medicos_asignados": len(todos_los_medicos),
+            "solicitudes_pendientes": contar("pendiente", "aceptado"),
+            "solicitudes_en_camino": contar("en_camino"),
+            "solicitudes_derivadas": contar(*ESTADOS_EN_CURSO),
+            "atenciones_hoy": sum(atendidas_hoy.values()),
+        },
+        "guardias": sorted(guardias, key=lambda g: (-g["en_espera"], g["centro_nombre"])),
+        "alertas": alertas,
+    }
