@@ -1,5 +1,5 @@
 """
-Vistas del módulo Clínica — Épica 4, issue #23 (AE4-13).
+Vistas del módulo Clínica — Épica 4, issue #23 (AE4-13) y Épica 5, AE5-04 (#34).
 """
 
 from rest_framework import status
@@ -13,7 +13,7 @@ from apps.clinica.disponibilidad import (
     set_disponibilidad_medico,
 )
 from apps.clinica.models import Medico
-from core.permissions import IsMedicoEspecialista
+from core.permissions import IsAdminOOperadorDelCentro, IsMedicoEspecialista
 
 
 class MiDisponibilidadAPIView(APIView):
@@ -155,6 +155,118 @@ class MisSolicitudesMedicoAPIView(APIView):
                 "medico_id": medico_id,
                 "atendidos_hoy": atendidos_hoy,
                 "solicitudes": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Épica 5 — AE5-04 (#34): guardias programadas
+# ---------------------------------------------------------------------------
+
+class CentroGuardiasAPIView(APIView):
+    """
+    GET  /api/v1/centros/{centro_id}/guardias/?medico_id=&especialidad_id=&dia_semana=
+         Cronograma semanal del centro.
+    POST /api/v1/centros/{centro_id}/guardias/
+         Alta de un bloque de guardia.
+
+    Acceso: ADMIN u OPERADOR_CENTRO del centro.
+    """
+
+    permission_classes = [IsAdminOOperadorDelCentro]
+
+    def get(self, request: Request, centro_id: int) -> Response:
+        from apps.centros.services_plantel import obtener_centro
+        from apps.clinica import services_guardias
+
+        centro = obtener_centro(centro_id)
+        guardias = services_guardias.cronograma_del_centro(centro, request.query_params)
+        return Response(
+            {
+                "centro_id": centro.id,
+                "centro_nombre": centro.nombre,
+                "cantidad": len(guardias),
+                "guardias": guardias,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request: Request, centro_id: int) -> Response:
+        from apps.centros.services_plantel import obtener_centro
+        from apps.clinica import services_guardias
+        from apps.clinica.serializers import GuardiaSerializer
+
+        centro = obtener_centro(centro_id)
+        serializer = GuardiaSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        guardia = services_guardias.crear_guardia(centro, serializer.validated_data)
+        return Response(
+            services_guardias.serializar_guardia(guardia), status=status.HTTP_201_CREATED
+        )
+
+
+class CentroGuardiaDetalleAPIView(APIView):
+    """
+    PATCH  /api/v1/centros/{centro_id}/guardias/{guardia_id}/
+    DELETE /api/v1/centros/{centro_id}/guardias/{guardia_id}/
+
+    Acceso: ADMIN u OPERADOR_CENTRO del centro.
+    """
+
+    permission_classes = [IsAdminOOperadorDelCentro]
+
+    def patch(self, request: Request, centro_id: int, guardia_id: int) -> Response:
+        from apps.centros.services_plantel import obtener_centro
+        from apps.clinica import services_guardias
+        from apps.clinica.serializers import GuardiaSerializer
+
+        centro = obtener_centro(centro_id)
+        guardia = services_guardias.obtener_guardia(centro, guardia_id)
+        serializer = GuardiaSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        guardia = services_guardias.actualizar_guardia(guardia, serializer.validated_data)
+        return Response(services_guardias.serializar_guardia(guardia), status=status.HTTP_200_OK)
+
+    def delete(self, request: Request, centro_id: int, guardia_id: int) -> Response:
+        from apps.centros.services_plantel import obtener_centro
+        from apps.clinica import services_guardias
+
+        centro = obtener_centro(centro_id)
+        services_guardias.obtener_guardia(centro, guardia_id).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MisGuardiasAPIView(APIView):
+    """
+    GET /api/v1/medicos/mis-guardias/
+
+    Cronograma propio del médico autenticado (sólo lectura).
+    """
+
+    permission_classes = [IsAuthenticated, IsMedicoEspecialista]
+
+    def get(self, request: Request) -> Response:
+        from django.utils import timezone
+
+        from apps.clinica import services_guardias
+
+        perfil = getattr(request.user, "perfil", None)
+        medico = getattr(perfil, "medico", None)
+        if medico is None:
+            return Response(
+                {"error": "El usuario autenticado no tiene una ficha de médico asignada."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        guardias = services_guardias.guardias_del_medico(medico)
+        return Response(
+            {
+                "medico_id": medico.id,
+                "nombre": medico.nombre,
+                "hoy": timezone.localtime().weekday(),
+                "cantidad": len(guardias),
+                "guardias": guardias,
             },
             status=status.HTTP_200_OK,
         )

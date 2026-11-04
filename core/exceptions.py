@@ -32,6 +32,11 @@ class ErrorDeAplicacion(APIException):
     codigo = "ERROR_INTERNO"
     default_detail = "Ocurrio un error inesperado."
 
+    def __init__(self, detail=None, code=None, detalles=None):
+        super().__init__(detail, code)
+        # Datos estructurados opcionales que viajan en "error.detalles".
+        self.detalles = detalles
+
 
 class RecursoNoEncontrado(ErrorDeAplicacion):
     """404 - Se pidio un recurso por id y no existe."""
@@ -148,6 +153,7 @@ def manejador_de_excepciones(exc, context):
         respuesta.data = cuerpo_de_error(
             codigo=exc.codigo,
             mensaje=str(exc.detail),
+            detalles=getattr(exc, "detalles", None),
         )
         return respuesta
 
