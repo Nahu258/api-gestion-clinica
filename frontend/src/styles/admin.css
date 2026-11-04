@@ -607,3 +607,9 @@
 .ui-icon-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .ui-rows--flush .ui-row { padding-left: 0; padding-right: 0; }
+
+/* ── Usuarios del personal (AE5-09) ─────────────────────────────────────── */
+
+.ui-nowrap { white-space: nowrap; }
+
+.ui-chip--lg { height: 32px; padding: 0 14px; font-size: 0.84rem; }

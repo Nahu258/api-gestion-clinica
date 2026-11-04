@@ -18,6 +18,7 @@ import Instituciones from './pages/admin/Instituciones.jsx'
 import InstitucionForm from './pages/admin/InstitucionForm.jsx'
 import InstitucionDetalle from './pages/admin/InstitucionDetalle.jsx'
 import Especialidades from './pages/admin/Especialidades.jsx'
+import Usuarios from './pages/admin/Usuarios.jsx'
 
 /**
  * App - enrutador raíz de EmergenciaYA con RBAC (Épica 4 issue #26).
@@ -59,7 +60,7 @@ export default function App() {
               <Route path="instituciones/:id" element={<InstitucionDetalle />} />
               <Route path="instituciones/:id/editar" element={<InstitucionForm />} />
               <Route path="especialidades" element={<Especialidades />} />
-              <Route path="usuarios" element={<EnConstruccion titulo="Usuarios del personal" />} />
+              <Route path="usuarios" element={<Usuarios />} />
             </Route>
           </Route>
 
