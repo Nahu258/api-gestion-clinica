@@ -136,7 +136,7 @@ middleware, la base de datos y la configuración de DRF.
 *Por qué:* Django necesita un punto central desde donde descubrir todo.
 
 **`config/urls.py` — Ruteo principal.**
-Solo reparte: `/admin/` va al panel, `/api/v1/` se delega a cada app.
+Solo reparte: `/django-admin/` va al panel de Django, `/api/v1/` se delega a cada app.
 *Por qué:* agregar un recurso nuevo mañana (ej. `medicos`) es una línea acá,
 no reescribir un archivo gigante.
 

@@ -13,8 +13,10 @@ from apps.turnos.views import IndiceAPIView
 from core.salud import salud
 
 urlpatterns = [
-    # Panel de administracion de Django
-    path("admin/", admin.site.urls),
+    # Panel de administracion de Django. Va en /django-admin/ porque /admin/ es
+    # la consola del superadmin del frontend (Épica 5): en producción el proxy
+    # mandaría /admin/... a Django y rompería esas rutas al recargar.
+    path("django-admin/", admin.site.urls),
 
     # Indice de la API (mapa de rutas)
     re_path(r"^api/v1/?$", IndiceAPIView.as_view(), name="api-indice"),
