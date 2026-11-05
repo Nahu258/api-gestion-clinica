@@ -5,7 +5,7 @@
  */
 
 import { Link } from 'react-router-dom'
-import { ArrowRight, CalendarDots, FirstAidKit, Stethoscope } from '@phosphor-icons/react'
+import { ArrowRight, Buildings, CalendarDots, FirstAidKit, Stethoscope } from '@phosphor-icons/react'
 import { useCentroGestion } from './GestionLayout.jsx'
 
 const SECCIONES = [
@@ -26,6 +26,12 @@ const SECCIONES = [
     titulo: 'Guardias',
     texto: 'Cronograma semanal de guardias y cobertura por especialidad.',
     icon: CalendarDots,
+  },
+  {
+    seccion: 'institucion',
+    titulo: 'Datos del centro',
+    texto: 'Teléfono, horario y ubicación que ve el público en el mapa.',
+    icon: Buildings,
   },
 ]
 

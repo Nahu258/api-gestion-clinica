@@ -13,7 +13,6 @@ import HistorialPaciente from './pages/HistorialPaciente.jsx'
 import { ToastProvider } from './components/ui/Toast.jsx'
 import AdminLayout from './pages/admin/AdminLayout.jsx'
 import GestionLayout from './pages/gestion/GestionLayout.jsx'
-import EnConstruccion from './pages/EnConstruccion.jsx'
 import Instituciones from './pages/admin/Instituciones.jsx'
 import InstitucionForm from './pages/admin/InstitucionForm.jsx'
 import InstitucionDetalle from './pages/admin/InstitucionDetalle.jsx'
@@ -24,6 +23,7 @@ import GestionInicio from './pages/gestion/GestionInicio.jsx'
 import EspecialidadesCentro from './pages/gestion/EspecialidadesCentro.jsx'
 import MedicosCentro from './pages/gestion/MedicosCentro.jsx'
 import GuardiasCentro from './pages/gestion/GuardiasCentro.jsx'
+import InstitucionCentro from './pages/gestion/InstitucionCentro.jsx'
 
 /**
  * App - enrutador raíz de EmergenciaYA con RBAC (Épica 4 issue #26).
@@ -53,6 +53,7 @@ export default function App() {
               <Route path="especialidades" element={<EspecialidadesCentro />} />
               <Route path="medicos" element={<MedicosCentro />} />
               <Route path="guardias" element={<GuardiasCentro />} />
+              <Route path="institucion" element={<InstitucionCentro />} />
             </Route>
           </Route>
 

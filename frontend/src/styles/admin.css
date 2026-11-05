@@ -772,3 +772,23 @@
 @media (prefers-reduced-motion: reduce) {
   .ui-sched__block.is-conflict, .ui-sched-list__item.is-conflict { animation: none; }
 }
+
+/* ── Datos del centro (AE5-13) ──────────────────────────────────────────── */
+
+.ui-map-field__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+
+.ui-readonly { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 12px; border-radius: var(--r-sm); background: var(--surface-2); }
+.ui-readonly dt { font-size: 0.74rem; color: var(--ink-3); font-weight: 600; }
+.ui-readonly dd { margin: 2px 0 0; font-size: 0.9rem; color: var(--ink); overflow-wrap: anywhere; }
+.ui-readonly__note { display: flex; align-items: center; gap: 6px; margin-top: -6px; }
+
+.ui-preview { padding: 16px; }
+.ui-preview__name { font-weight: 650; font-size: 1.02rem; }
+.ui-preview__type { font-size: 0.82rem; color: var(--ink-3); }
+.ui-preview__rows { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; font-size: 0.88rem; }
+.ui-preview__rows li { display: flex; gap: 8px; align-items: flex-start; }
+.ui-preview__rows svg { flex-shrink: 0; margin-top: 2px; color: var(--ink-3); }
+
+@media (max-width: 560px) {
+  .ui-readonly { grid-template-columns: 1fr; }
+}

@@ -7,7 +7,7 @@
  */
 
 import { Link, Navigate, Outlet, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, CalendarDots, FirstAidKit, House, Stethoscope } from '@phosphor-icons/react'
+import { ArrowLeft, Buildings, CalendarDots, FirstAidKit, House, Stethoscope } from '@phosphor-icons/react'
 import { useAuth } from '../../context/AuthContext.jsx'
 import ConsolaLayout from '../../components/ConsolaLayout.jsx'
 
@@ -48,6 +48,7 @@ export default function GestionLayout() {
     { to: `/panel-centro/gestion/especialidades${sufijo}`, label: 'Especialidades', icon: FirstAidKit },
     { to: `/panel-centro/gestion/medicos${sufijo}`, label: 'Médicos', icon: Stethoscope },
     { to: `/panel-centro/gestion/guardias${sufijo}`, label: 'Guardias', icon: CalendarDots },
+    { to: `/panel-centro/gestion/institucion${sufijo}`, label: 'Datos del centro', icon: Buildings },
   ]
 
   const pie = (

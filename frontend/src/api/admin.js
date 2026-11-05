@@ -136,3 +136,11 @@ export const asignarMedicoEspecialidad = (centroId, especialidadId, medicoId) =>
     method: 'POST',
     body: { medico_id: medicoId },
   })
+
+// ── Datos públicos del centro (AE5-13) ───────────────────────────────────────
+
+export const obtenerPerfilCentro = (centroId) => apiFetch(`/centros/${centroId}/perfil/`)
+
+/** PATCH acotado: el operador sólo puede enviar teléfono, 24 h, dirección y coordenadas. */
+export const actualizarPerfilCentro = (centroId, cambios) =>
+  apiFetch(`/centros/${centroId}/perfil/`, { method: 'PATCH', body: cambios })

@@ -20,6 +20,7 @@ from apps.centros.views_admin import (
     AdminCentroDetalleAPIView,
     AdminCentrosAPIView,
     AdminResumenAPIView,
+    CentroPerfilAPIView,
 )
 from apps.centros.views_gestion import (
     BuscarMedicoAPIView,
@@ -93,6 +94,12 @@ urlpatterns = [
         r"^medicos/buscar/?$",
         BuscarMedicoAPIView.as_view(),
         name="medicos-buscar",
+    ),
+    # Épica 5 — AE5-13: datos públicos del centro editables por su operador
+    re_path(
+        r"^centros/(?P<centro_id>\d+)/perfil/?$",
+        CentroPerfilAPIView.as_view(),
+        name="centro-perfil",
     ),
     # Épica 5 — AE5-14: resumen general de la red
     re_path(
