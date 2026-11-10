@@ -22,7 +22,8 @@ import { check, group, sleep } from 'k6'
 
 const BASE = (__ENV.BASE_URL || 'http://localhost:8000') + '/api/v1'
 const PERFIL = __ENV.PERFIL || 'completo'
-const CENTRO_CARGA = Number(__ENV.CENTRO_ID || 36) // Sanatorio Posadas (no el del demo)
+// Los avisos de carga van a un centro que no es el de la demo (Sanatorio Boratti).
+const CENTRO_CARGA_NOMBRE = __ENV.CENTRO_NOMBRE || 'Sanatorio Posadas'
 
 const PERFILES = {
   ci: { executor: 'constant-vus', vus: 10, duration: '30s' },
@@ -78,11 +79,20 @@ function buscarCercanos() {
   check(r, { 'cercanos 200': (res) => res.status === 200 })
 }
 
-function avisoDeInvitado() {
+export function setup() {
+  // Los ids dependen del orden del seed: se busca el centro por nombre.
+  const r = http.get(`${BASE}/centros/cercanos/?lat=-27.3671&lon=-55.8961&radio_km=50`)
+  const centros = r.json('resultados') || []
+  const centro = centros.find((c) => c.nombre === CENTRO_CARGA_NOMBRE) || centros[0]
+  if (!centro) throw new Error('No hay centros activos: ¿corrió seed_demo?')
+  return { centroId: centro.id }
+}
+
+function avisoDeInvitado(centroId) {
   const r = http.post(
     `${BASE}/atencion/solicitudes/`,
     JSON.stringify({
-      centro_id: CENTRO_CARGA,
+      centro_id: centroId,
       modo: 'aviso',
       motivo: '[carga k6] dolor abdominal',
       nombre_invitado: `Carga ${__VU}-${__ITER}`,
@@ -113,10 +123,10 @@ function pacienteVeHistorial() {
   check(r, { 'historial 200': (res) => res.status === 200 })
 }
 
-export default function () {
+export default function (datos) {
   const dado = Math.random()
   if (dado < 0.7) group('mapa', buscarCercanos)
-  else if (dado < 0.9) group('aviso invitado', avisoDeInvitado)
+  else if (dado < 0.9) group('aviso invitado', () => avisoDeInvitado(datos.centroId))
   else group('historial paciente', pacienteVeHistorial)
   sleep(1 + Math.random()) // tiempo de lectura del usuario
 }
