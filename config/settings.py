@@ -72,6 +72,8 @@ INSTALLED_APPS = [
 # El orden importa: se ejecutan de arriba hacia abajo en la entrada.
 # ---------------------------------------------------------------------------
 MIDDLEWARE = [
+    # AE4: primero de todo, así el trace_id y la medición cubren la petición entera.
+    "core.observabilidad.ObservabilidadMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -249,9 +251,31 @@ RABBITMQ_URL = env(
 # ---------------------------------------------------------------------------
 # Logs: los errores de cache y mensajeria se ven en consola
 # ---------------------------------------------------------------------------
+# ── AE4: observabilidad ──────────────────────────────────────────────────────
+# Logs estructurados en JSON con trace_id/span_id (ver core/observabilidad.py).
+# LOG_FORMATO=texto los deja legibles para desarrollo local.
+NOMBRE_SERVICIO = env("NOMBRE_SERVICIO", "api")
+# Si se define, GET /metrics exige "Authorization: Bearer <METRICS_TOKEN>".
+METRICS_TOKEN = env("METRICS_TOKEN", "")
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"consola": {"class": "logging.StreamHandler"}},
-    "loggers": {"apps": {"handlers": ["consola"], "level": "INFO"}},
+    "filters": {"traza": {"()": "core.observabilidad.FiltroDeTraza"}},
+    "formatters": {
+        "json": {"()": "core.observabilidad.FormatoJSON"},
+        "texto": {"format": "%(asctime)s %(levelname)s [%(trace_id)s] %(name)s: %(message)s"},
+    },
+    "handlers": {
+        "consola": {
+            "class": "logging.StreamHandler",
+            "filters": ["traza"],
+            "formatter": "texto" if env("LOG_FORMATO", "json") == "texto" else "json",
+        },
+    },
+    "loggers": {
+        "apps": {"handlers": ["consola"], "level": "INFO"},
+        "core": {"handlers": ["consola"], "level": "INFO"},
+        "emergenciaya": {"handlers": ["consola"], "level": "INFO"},
+    },
 }

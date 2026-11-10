@@ -16,3 +16,6 @@ fakeredis==2.38.0         # Redis en memoria para los tests
 google-auth==2.40.0                      # verificar id_token de Google OAuth2
 requests==2.34.2                         # requerido por google.auth.transport.requests
 djangorestframework-simplejwt==5.5.0     # JWT propios (access + refresh tokens)
+
+# --- AE4: observabilidad ---
+prometheus-client==0.21.1        # metricas en formato Prometheus (GET /metrics)

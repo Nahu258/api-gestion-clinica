@@ -20,7 +20,10 @@ import pika
 from django.conf import settings
 from django.core.cache import cache
 
+from core import metricas
 from core.exceptions import DatosInvalidos
+from core.observabilidad import span, trace_id_actual
+from core.resiliencia import CircuitoAbierto, circuito_rabbitmq, llamada_protegida, resolver_con_timeout
 
 logger = logging.getLogger(__name__)
 
@@ -33,16 +36,40 @@ def parametros_de_conexion() -> pika.URLParameters:
     return pika.URLParameters(settings.RABBITMQ_URL)
 
 
+def parametros_de_publicacion() -> pika.URLParameters:
+    """
+    Para PUBLICAR desde una petición HTTP: timeouts cortos y un solo intento
+    de conexión. Los reintentos los maneja core.resiliencia (con backoff) y el
+    circuit breaker corta en seco si RabbitMQ está caído, así un aviso nunca
+    espera los ~6 s que tardaría pika con sus reintentos por defecto.
+    """
+    parametros = pika.URLParameters(settings.RABBITMQ_URL)
+    parametros.socket_timeout = 2
+    parametros.blocked_connection_timeout = 2
+    parametros.connection_attempts = 1
+    return parametros
+
+
 def publicar_evento(tipo: str, payload: dict) -> str | None:
     """
     Publica un evento persistente en RabbitMQ y devuelve su evento_id.
 
+    AE4 - Resiliencia: 2 intentos con backoff dentro de un circuit breaker.
     Si el broker no responde, se registra el error y se devuelve None: la
     operacion principal (que ya se guardo) no falla por un efecto secundario.
+    El evento lleva el trace_id de la petición que lo originó (correlación).
     """
-    mensaje = {"evento_id": str(uuid.uuid4()), "tipo": tipo, **payload}
-    try:
-        conexion = pika.BlockingConnection(parametros_de_conexion())
+    mensaje = {
+        "evento_id": str(uuid.uuid4()),
+        "tipo": tipo,
+        "trace_id": trace_id_actual.get(),
+        **payload,
+    }
+
+    def _publicar():
+        parametros = parametros_de_publicacion()
+        resolver_con_timeout(parametros.host, parametros.port)
+        conexion = pika.BlockingConnection(parametros)
         try:
             canal = conexion.channel()
             canal.queue_declare(queue=COLA_EVENTOS, durable=True)
@@ -53,14 +80,28 @@ def publicar_evento(tipo: str, payload: dict) -> str | None:
                 properties=pika.BasicProperties(
                     delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE,
                     content_type="application/json",
+                    message_id=mensaje["evento_id"],
+                    correlation_id=mensaje["trace_id"],
+                    type=tipo,
                 ),
             )
         finally:
             conexion.close()
-    except Exception:
-        # Un sistema real guardaria el evento en una tabla outbox y reintentaria.
-        logger.exception("No se pudo publicar el evento %s", tipo)
+
+    try:
+        with span("rabbitmq.publicar", tipo=tipo):
+            llamada_protegida(circuito_rabbitmq, _publicar)
+    except CircuitoAbierto:
+        metricas.eventos_publicados.labels(tipo, "circuito_abierto").inc()
+        logger.warning("Evento %s no publicado: circuito de RabbitMQ abierto", tipo, extra={"tipo": tipo})
         return None
+    except Exception:
+        # Mejora posible: tabla outbox para reintentar la publicacion mas tarde.
+        metricas.eventos_publicados.labels(tipo, "error").inc()
+        logger.exception("No se pudo publicar el evento %s", tipo, extra={"tipo": tipo})
+        return None
+    metricas.eventos_publicados.labels(tipo, "ok").inc()
+    logger.info("Evento %s publicado", tipo, extra={"tipo": tipo, "evento_id": mensaje["evento_id"]})
     return mensaje["evento_id"]
 
 

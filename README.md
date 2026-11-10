@@ -13,7 +13,7 @@
 ## AE4.1 Arranque
 
 ```powershell
-docker compose up -d --build     # postgres, redis, rabbitmq, api, worker, consumidor, frontend
+docker compose up -d --build     # postgres, redis, rabbitmq, api, worker, consumidor, frontend, prometheus, grafana
 ```
 
 Frontend en <http://localhost:5173>, API en <http://localhost:8000/api/v1>,
@@ -131,6 +131,68 @@ contraseñas. Qué sí:
    access token sin volver a verificar la contraseña.
 3. **Rate limiting por IP/cuenta en `/auth/login/`:** acota el costo de un
    ataque y de paso protege contra fuerza bruta.
+
+## AE4.6 Resiliencia
+
+`core/resiliencia.py` protege la publicación de eventos en RabbitMQ con tres capas:
+
+| Capa | Configuración |
+|---|---|
+| Timeouts | Resolución DNS con límite de 1 s, `socket_timeout` de 2–3 s y un intento de conexión por llamada |
+| Reintentos | 2 intentos con backoff exponencial y jitter (0,2 s × 2ⁿ × (1 + 0–0,5)) |
+| Circuit breaker | Se abre tras 3 operaciones fallidas seguidas, queda abierto 30 s y después pasa a semiabierto: una llamada de prueba lo cierra o lo vuelve a abrir |
+
+Con RabbitMQ caído, la API sigue respondiendo `201` a los avisos. Mientras el
+circuito está abierto no intenta conectarse, así que la latencia no se degrada.
+`/api/v1/salud` informa `circuit_breaker_rabbitmq` y responde `503` mientras el
+circuito está abierto.
+
+Prueba de caída en vivo (con el stack levantado):
+
+```powershell
+.\scripts\prueba-caida-rabbitmq.ps1   # apaga RabbitMQ, manda avisos, muestra tiempos, /salud y la métrica; lo vuelve a levantar
+```
+
+La misma prueba está automatizada en `core/tests_resiliencia_observabilidad.py`.
+
+Resultado medido con el stack de Docker Compose:
+
+| Aviso | Con RabbitMQ caído |
+|---|---|
+| 1 a 3 | `201` en ~2,3 s (2 intentos con timeout + backoff; abren el circuito) |
+| 4 a 6 | `201` en 80–130 ms (circuito abierto, no intenta conectar) |
+| 7, con RabbitMQ de vuelta | `201` en 50 ms; el circuito vuelve a cerrado |
+
+> Con el contenedor detenido, el DNS interno de Docker tarda ~4 s en responder
+> y el `socket_timeout` de pika no cubre la resolución del nombre: sin
+> `resolver_con_timeout()` cada aviso tardaba 8,3 s.
+
+## AE4.7 Observabilidad
+
+| | Dónde |
+|---|---|
+| Grafana (dashboard "EmergenciaYA — API y eventos", acceso anónimo de lectura) | <http://localhost:3000> |
+| Prometheus (targets y alertas) | <http://localhost:9090> |
+| Métricas de la API · consumidor · worker | <http://localhost:8000/metrics> · `:8001` · `:8002` (red interna) |
+
+- **Logs:** JSON, una línea por evento, con `servicio`, `trace_id` y `span_id`.
+  `LOG_FORMATO=texto` los deja legibles para desarrollo.
+- **Trazas:** cada respuesta lleva `X-Request-ID`. El mismo id viaja dentro del
+  evento y como `correlation_id` de AMQP, y el consumidor lo restaura. Con
+  `span()` se miden la publicación, el lock de Redis, el consumidor y el worker.
+- **Métricas:** peticiones y latencia por ruta (histograma), eventos publicados
+  y consumidos por resultado, estado del circuit breaker, reintentos y avisos por
+  tipo de paciente.
+- **Alertas** (`observabilidad/alertas.yml`): circuito abierto, p95 > 1,5 s,
+  errores 5xx y servicio caído.
+
+Para seguir un aviso de punta a punta:
+
+```powershell
+docker compose logs api consumidor | Select-String "<X-Request-ID de la respuesta>"
+```
+
+En producción, `METRICS_TOKEN` exige `Authorization: Bearer <token>` en `/metrics`.
 
 ---
 

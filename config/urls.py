@@ -10,6 +10,7 @@ from django.contrib import admin
 from django.urls import include, path, re_path
 
 from apps.turnos.views import IndiceAPIView
+from core.observabilidad import vista_metricas
 from core.salud import salud
 
 urlpatterns = [
@@ -23,6 +24,9 @@ urlpatterns = [
 
     # AE2: estado de la infraestructura (base, Redis, RabbitMQ)
     path("api/v1/salud", salud, name="salud"),
+
+    # AE4: métricas en formato Prometheus (las recolecta el servicio prometheus)
+    path("metrics", vista_metricas, name="metricas"),
 
     # Recursos de la version 1 de la API
     path("api/v1/", include("apps.turnos.urls")),

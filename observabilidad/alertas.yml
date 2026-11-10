@@ -1,0 +1,28 @@
+# AE4 - Reglas de alerta (se ven en Prometheus > Alerts).
+groups:
+  - name: emergenciaya
+    rules:
+      - alert: CircuitoRabbitMQAbierto
+        expr: emergenciaya_circuit_breaker_estado{dependencia="rabbitmq"} == 2
+        for: 10s
+        labels: {severidad: alta}
+        annotations:
+          resumen: "RabbitMQ no responde: el circuit breaker está abierto y los eventos no se publican"
+      - alert: LatenciaP95Alta
+        expr: histogram_quantile(0.95, sum(rate(emergenciaya_http_duracion_segundos_bucket[1m])) by (le)) > 1.5
+        for: 1m
+        labels: {severidad: media}
+        annotations:
+          resumen: "El p95 de la API supera 1,5 s (umbral de la prueba de carga)"
+      - alert: ErroresServidor
+        expr: sum(rate(emergenciaya_http_peticiones_total{estado=~"5.."}[1m])) > 0.1
+        for: 1m
+        labels: {severidad: alta}
+        annotations:
+          resumen: "La API está respondiendo errores 5xx"
+      - alert: ServicioCaido
+        expr: up == 0
+        for: 15s
+        labels: {severidad: alta}
+        annotations:
+          resumen: "Prometheus no puede leer las métricas de {{ $labels.job }}"

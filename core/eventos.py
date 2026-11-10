@@ -24,6 +24,10 @@ import pika
 from django.conf import settings
 from django.utils import timezone
 
+from core import metricas
+from core.observabilidad import span, trace_id_actual
+from core.resiliencia import CircuitoAbierto, circuito_rabbitmq, llamada_protegida, resolver_con_timeout
+
 logger = logging.getLogger(__name__)
 
 EXCHANGE = "clinica.eventos"
@@ -36,6 +40,7 @@ def conectar() -> pika.BlockingConnection:
     parametros = pika.URLParameters(settings.RABBITMQ_URL)
     parametros.socket_timeout = 3
     parametros.connection_attempts = 1
+    resolver_con_timeout(parametros.host, parametros.port)
     return pika.BlockingConnection(parametros)
 
 
@@ -63,6 +68,7 @@ def armar_evento(tipo: str, datos: dict) -> dict:
         "tipo": tipo,
         "version": 1,
         "ocurrido_en": timezone.now().isoformat(),
+        "trace_id": trace_id_actual.get(),  # AE4: correlación con la petición de origen
         "datos": datos,
     }
 
@@ -71,11 +77,15 @@ def publicar(routing_key: str, evento: dict) -> bool:
     """
     Publica el evento. Si RabbitMQ esta caido NO rompe la reserva: el turno
     ya quedo guardado, se registra el error en el log y se devuelve False.
+
+    AE4 - Resiliencia: socket_timeout de 3 s, 2 intentos con backoff y
+    circuit breaker compartido con el resto de los productores.
     (Mejora posible: patron outbox para reintentar la publicacion.)
     """
     if not settings.EVENTOS_HABILITADOS:
         return False
-    try:
+
+    def _publicar():
         conexion = conectar()
         try:
             canal = conexion.channel()
@@ -88,13 +98,24 @@ def publicar(routing_key: str, evento: dict) -> bool:
                     content_type="application/json",
                     delivery_mode=2,  # persistente: sobrevive a un reinicio de RabbitMQ
                     message_id=evento["event_id"],
+                    correlation_id=evento.get("trace_id"),
                     type=evento["tipo"],
                 ),
             )
         finally:
             conexion.close()
-        logger.info("Evento %s publicado (%s)", evento["tipo"], evento["event_id"])
-        return True
+
+    try:
+        with span("rabbitmq.publicar", tipo=evento["tipo"]):
+            llamada_protegida(circuito_rabbitmq, _publicar)
+    except CircuitoAbierto:
+        metricas.eventos_publicados.labels(evento["tipo"], "circuito_abierto").inc()
+        logger.warning("Evento %s no publicado: circuito de RabbitMQ abierto", evento["tipo"])
+        return False
     except Exception:  # noqa: BLE001
+        metricas.eventos_publicados.labels(evento["tipo"], "error").inc()
         logger.exception("No se pudo publicar el evento %s", evento["tipo"])
         return False
+    metricas.eventos_publicados.labels(evento["tipo"], "ok").inc()
+    logger.info("Evento %s publicado (%s)", evento["tipo"], evento["event_id"])
+    return True

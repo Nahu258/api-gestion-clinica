@@ -18,6 +18,8 @@ import uuid
 from contextlib import contextmanager
 from django.utils import timezone
 from core.redis_client import redis_o_503
+from core import metricas
+from core.observabilidad import span
 from core.exceptions import ServicioNoDisponible
 
 logger = logging.getLogger(__name__)
@@ -104,6 +106,13 @@ def crear_solicitud(datos: dict) -> SolicitudAtencion:
         telefono_invitado=datos.get("telefono_invitado", ""),
         lat_usuario=datos.get("lat_usuario"),
         lon_usuario=datos.get("lon_usuario"),
+    )
+    metricas.solicitudes_creadas.labels(
+        solicitud.modo, "invitado" if solicitud.es_invitado else "registrado"
+    ).inc()
+    logger.info(
+        "Solicitud %s creada", solicitud.pk,
+        extra={"solicitud_id": solicitud.pk, "centro_id": centro.pk, "modo": solicitud.modo},
     )
 
     if getattr(settings, "EVENTOS_HABILITADOS", True):
@@ -201,7 +210,7 @@ def derivar_solicitud(
     except Medico.DoesNotExist:
         raise DatosInvalidos(f"Médico #{medico_id} no existe.")
 
-    with lock_derivacion_medico(medico.id):
+    with span("redis.lock_derivacion", medico_id=medico.id), lock_derivacion_medico(medico.id):
         estado_medico = get_disponibilidad_medico(medico.id)
         if estado_medico == "FUERA_DE_GUARDIA":
             raise ReglaDeNegocioViolada(

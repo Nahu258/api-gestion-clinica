@@ -12,6 +12,8 @@ from django.db import connection
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from core.resiliencia import ABIERTO, circuito_rabbitmq
+
 
 def _chequear(funcion) -> str:
     try:
@@ -45,5 +47,9 @@ def salud(request):
         "redis": _chequear(_redis),
         "rabbitmq": _chequear(_rabbitmq),
     }
-    todo_ok = all(v == "ok" for k, v in estado.items() if k != "motor")
+    todo_ok = all(v == "ok" for v in estado.values() if v != connection.vendor)
+    # AE4: estado del circuit breaker de RabbitMQ (cerrado / semiabierto / abierto).
+    estado["circuit_breaker_rabbitmq"] = circuito_rabbitmq.estado
+    if circuito_rabbitmq.estado == ABIERTO:
+        todo_ok = False
     return Response(estado, status=200 if todo_ok else 503)
