@@ -8,8 +8,10 @@ import { defineConfig, devices } from '@playwright/test'
  *   - producción: E2E_BASE_URL=https://emergenciaya.duckdns.org npm test
  *
  * DEMO=1 abre el navegador visible y frena cada acción para mostrarlo en el coloquio.
+ * SLOWMO=<ms> ajusta esa pausa (por defecto 700 ms por acción).
  */
 const DEMO = process.env.DEMO === '1'
+const SLOWMO = DEMO ? Number(process.env.SLOWMO || 700) : 0
 const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:5173'
 
 export default defineConfig({
@@ -18,7 +20,8 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
-  timeout: DEMO ? 180_000 : 60_000,
+  // En demo el tiempo límite crece con la cámara lenta.
+  timeout: DEMO ? Math.max(180_000, SLOWMO * 300) : 60_000,
   expect: { timeout: 15_000 },
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
@@ -29,7 +32,7 @@ export default defineConfig({
     geolocation: { latitude: -27.3671, longitude: -55.8961 },
     permissions: ['geolocation'],
     headless: !DEMO,
-    launchOptions: { slowMo: DEMO ? 700 : 0 },
+    launchOptions: { slowMo: SLOWMO },
     viewport: { width: 1366, height: 820 },
     // Evidencia para el portafolio: traza, video y captura de cada prueba.
     trace: 'retain-on-failure',

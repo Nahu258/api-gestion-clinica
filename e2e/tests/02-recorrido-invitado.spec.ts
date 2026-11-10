@@ -79,6 +79,10 @@ test('invitado avisa, el centro deriva y el médico atiende', async ({ page, bro
     await page.bringToFront()
     // La pantalla consulta el estado cada 10 s, sin recargar.
     await expect(page.getByRole('heading', { name: 'Atención médica completada' })).toBeVisible({ timeout: 25_000 })
+    // El recorrido terminó: los 4 pasos en verde y ninguno marcado "en curso" en rojo.
+    const stepper = page.getByLabel('Progreso de atención de emergencia')
+    await expect(stepper.locator('.stepper-node--completed')).toHaveCount(4)
+    await expect(stepper.locator('.stepper-node--active')).toHaveCount(0)
   })
 
   await test.step('6. La atención aparece en "Atenciones cerradas" del centro', async () => {

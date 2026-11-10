@@ -328,8 +328,10 @@ export default function SeguimientoSolicitud() {
 
               <div className="stepper-nodes-row">
                 {PASOS_STEPPER.map((paso, idx) => {
-                  const completado = indiceActual > idx
-                  const activo = indiceActual === idx
+                  // Atendido es el final del recorrido: todos los pasos quedan
+                  // completados (verdes) y ninguno sigue "en curso" (rojo).
+                  const completado = esAtendido || indiceActual > idx
+                  const activo = !esAtendido && indiceActual === idx
                   return (
                     <div
                       key={paso.key}
