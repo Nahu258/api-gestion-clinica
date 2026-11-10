@@ -219,8 +219,11 @@ jobs:
           ssh -i ~/.ssh/id_deploy "${VPS_USER:-root}@$VPS_HOST" bash -se <<EOF
             set -e
             cd "$APP_DIR"
+            # El servidor queda igual al repo: se descartan cambios hechos a mano en
+            # archivos versionados (.env y docker-compose.prod.yml no se tocan).
+            git fetch --quiet --tags origin
             git checkout --quiet main
-            git pull --ff-only --tags --quiet
+            git reset --quiet --hard origin/main
             git merge-base --is-ancestor "$GITHUB_REF_NAME" HEAD   # el tag ya está en main
             cd frontend && docker run --rm -v \$(pwd):/app -w /app node:20-alpine sh -c 'npm ci && npm run build' | tail -3
             cd "$APP_DIR" && docker compose -f "$COMPOSE_PROD" up -d --build

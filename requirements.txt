@@ -19,3 +19,7 @@ djangorestframework-simplejwt==5.5.0     # JWT propios (access + refresh tokens)
 
 # --- AE4: observabilidad ---
 prometheus-client==0.21.1        # metricas en formato Prometheus (GET /metrics)
+
+# --- Producción ---
+gunicorn==23.0.0                 # servidor WSGI (docker-compose.prod.yml)
+whitenoise==6.9.0                # sirve los estáticos del admin y DRF
