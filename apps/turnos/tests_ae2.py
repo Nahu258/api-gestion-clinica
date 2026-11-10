@@ -323,6 +323,11 @@ class ConcurrenciaTests(TransactionTestCase):
 
     def setUp(self):
         get_redis().flushall()
+        # El medico ya existe en la agenda (como en produccion). Si no, los 10
+        # hilos lo crearian a la vez con ids distintos y no competirian por
+        # el mismo horario: el test no mediria la concurrencia de la reserva.
+        from apps.clinica import services as clinica
+        clinica.registrar_medico(nombre=PROFESIONAL, especialidad=Turno.Especialidad.CLINICA_MEDICA)
 
     def _disparar_en_paralelo(self):
         barrera = threading.Barrier(self.PEDIDOS)
