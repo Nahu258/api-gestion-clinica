@@ -9,7 +9,7 @@
  * con baja conectividad o sin conexión.
  */
 
-import { getAuthHeaders } from './auth.js'
+import { getAuthHeaders, refrescarToken } from './auth.js'
 
 const API_BASE = '/api/v1'
 const CACHE_KEY = 'emergenciaya_centros_cache'
@@ -369,9 +369,19 @@ function calcularDistanciaKm(lat1, lon1, lat2, lon2) {
   return Math.round(R * c * 10) / 10
 }
 
+/** Por qué se muestran centros guardados en vez de los de la API. */
+export const MOTIVO_SIN_CONEXION = 'sin_conexion' // no hay red o la API no responde
+export const MOTIVO_ERROR_SERVIDOR = 'error_servidor' // la API respondió con un error
+
 /**
  * Obtiene centros de emergencia cercanos a las coordenadas indicadas.
- * Si falla la red (offline), recupera de cache o recurre al catálogo offline garantizado.
+ *
+ * El endpoint es público: si el token de la sesión venció (401) se renueva y,
+ * si no se puede, se consulta sin token. Así un paciente con la sesión vencida
+ * no ve "Sin conexión" teniendo internet.
+ *
+ * Si la consulta falla igual, se muestran los centros guardados (cache o
+ * catálogo de Posadas) indicando el motivo real: sin conexión o error del servidor.
  */
 export async function obtenerCentrosCercanos({ lat, lon, radio_km = 10, tipo = '' } = {}) {
   const query = new URLSearchParams({
@@ -382,21 +392,30 @@ export async function obtenerCentrosCercanos({ lat, lon, radio_km = 10, tipo = '
   if (tipo) {
     query.set('tipo', tipo)
   }
-
-  try {
-    const res = await fetch(`${API_BASE}/centros/cercanos/?${query.toString()}`, {
+  const url = `${API_BASE}/centros/cercanos/?${query.toString()}`
+  const pedir = (conAuth) =>
+    fetch(url, {
       method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        ...getAuthHeaders(),
-      },
+      headers: { Accept: 'application/json', ...(conAuth ? getAuthHeaders() : {}) },
     })
 
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}))
-      throw new Error(errData.error || `Error ${res.status} al consultar centros cercanos.`)
+  let res
+  try {
+    res = await pedir(true)
+    if (res.status === 401) {
+      const renovado = await refrescarToken()
+      res = await pedir(Boolean(renovado))
     }
+  } catch {
+    // fetch solo lanza cuando no hay respuesta: sin red o API inaccesible.
+    return centrosGuardados({ lat, lon, radio_km, tipo }, MOTIVO_SIN_CONEXION)
+  }
 
+  if (!res.ok) {
+    return centrosGuardados({ lat, lon, radio_km, tipo }, MOTIVO_ERROR_SERVIDOR)
+  }
+
+  try {
     const data = await res.json()
     try {
       sessionStorage.setItem(
@@ -414,36 +433,42 @@ export async function obtenerCentrosCercanos({ lat, lon, radio_km = 10, tipo = '
       // Ignorar errores de quota
     }
 
-    return { ...data, esOffline: false }
-  } catch (error) {
-    // 1. Intentar leer cache local previo
-    const cached = obtenerCacheCentros()
-    if (cached && cached.data && Array.isArray(cached.data.resultados) && cached.data.resultados.length > 0) {
-      return {
-        ...cached.data,
-        esOffline: true,
-      }
-    }
+    return { ...data, esOffline: false, motivoOffline: null }
+  } catch {
+    // La respuesta llegó cortada o no era JSON válido.
+    return centrosGuardados({ lat, lon, radio_km, tipo }, MOTIVO_ERROR_SERVIDOR)
+  }
+}
 
-    // 2. Fallback resiliente con datos garantizados de Posadas
-    let filtrados = CENTROS_DEFAULT_POSADAS
-    if (tipo) {
-      filtrados = filtrados.filter((c) => c.tipo === tipo)
-    }
+/**
+ * Centros a mostrar cuando la API no da una respuesta válida:
+ * 1. la última respuesta guardada en el dispositivo, o
+ * 2. el catálogo garantizado de Posadas, filtrado y ordenado por distancia.
+ */
+function centrosGuardados({ lat, lon, radio_km, tipo }, motivo) {
+  const cached = obtenerCacheCentros()
+  if (cached && cached.data && Array.isArray(cached.data.resultados) && cached.data.resultados.length > 0) {
+    return { ...cached.data, esOffline: true, motivoOffline: motivo }
+  }
 
-    const conDistancia = filtrados
-      .map((c) => {
-        const d = calcularDistanciaKm(Number(lat), Number(lon), c.latitud, c.longitud)
-        return { ...c, distancia_km: d }
-      })
-      .filter((c) => c.distancia_km <= Number(radio_km))
-      .sort((a, b) => a.distancia_km - b.distancia_km)
+  let filtrados = CENTROS_DEFAULT_POSADAS
+  if (tipo) {
+    filtrados = filtrados.filter((c) => c.tipo === tipo)
+  }
 
-    return {
-      cantidad: conDistancia.length,
-      resultados: conDistancia,
-      esOffline: true,
-    }
+  const conDistancia = filtrados
+    .map((c) => {
+      const d = calcularDistanciaKm(Number(lat), Number(lon), c.latitud, c.longitud)
+      return { ...c, distancia_km: d }
+    })
+    .filter((c) => c.distancia_km <= Number(radio_km))
+    .sort((a, b) => a.distancia_km - b.distancia_km)
+
+  return {
+    cantidad: conDistancia.length,
+    resultados: conDistancia,
+    esOffline: true,
+    motivoOffline: motivo,
   }
 }
 

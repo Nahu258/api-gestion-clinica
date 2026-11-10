@@ -38,7 +38,7 @@ import {
   X,
 } from '@phosphor-icons/react'
 
-import { obtenerCentrosCercanos } from '../api/centros.js'
+import { obtenerCentrosCercanos, MOTIVO_SIN_CONEXION } from '../api/centros.js'
 import { cerrarSesion, getAuthHeaders } from '../api/auth.js'
 
 // Coordenadas de referencia garantizadas (Posadas Centro, tierra firme)
@@ -96,6 +96,9 @@ export default function Mapa() {
   const [cargandoCentros, setCargandoCentros] = useState(false)
   const [errorCentros, setErrorCentros] = useState(null)
   const [esOffline, setEsOffline] = useState(false)
+  const [motivoOffline, setMotivoOffline] = useState(null)
+  // Se incrementa al volver la conexión para recargar los centros reales.
+  const [reconexiones, setReconexiones] = useState(0)
 
   // Centro seleccionado actualmente
   const [centroSeleccionadoId, setCentroSeleccionadoId] = useState(null)
@@ -245,6 +248,13 @@ export default function Mapa() {
     }
   }
 
+  // Al volver la conexión se recargan los centros y desaparece el aviso.
+  useEffect(() => {
+    const alReconectar = () => setReconexiones((n) => n + 1)
+    window.addEventListener('online', alReconectar)
+    return () => window.removeEventListener('online', alReconectar)
+  }, [])
+
   // 3. Cargar centros cuando cambian los parámetros
   useEffect(() => {
     if (!ubicacionUsuario) return
@@ -263,6 +273,7 @@ export default function Mapa() {
         if (!activo) return
         setCentros(data.resultados || [])
         setEsOffline(Boolean(data.esOffline))
+        setMotivoOffline(data.motivoOffline || null)
         setCargandoCentros(false)
       })
       .catch((err) => {
@@ -274,7 +285,7 @@ export default function Mapa() {
     return () => {
       activo = false
     }
-  }, [ubicacionUsuario, radioKm, tipoFiltro])
+  }, [ubicacionUsuario, radioKm, tipoFiltro, reconexiones])
 
   // 4. Centros filtrados por texto
   const centrosFiltrados = useMemo(() => {
@@ -452,7 +463,11 @@ export default function Mapa() {
       {esOffline && (
         <aside className="offline-alert-banner" role="status">
           <Lightning size={16} aria-hidden="true" />
-          <span>Sin conexión: se muestran los centros de Posadas guardados en el dispositivo.</span>
+          <span>
+            {motivoOffline === MOTIVO_SIN_CONEXION
+              ? 'Sin conexión: se muestran los centros de Posadas guardados en el dispositivo.'
+              : 'No pudimos actualizar los centros: se muestran los guardados en el dispositivo.'}
+          </span>
         </aside>
       )}
 

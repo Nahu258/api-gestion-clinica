@@ -93,6 +93,14 @@ test('invitado avisa, el centro deriva y el médico atiende', async ({ page, bro
     await expect(p.getByRole('cell', { name: diagnostico })).toBeVisible()
   })
 
+  // Modo demo: las tres ventanas quedan abiertas para mostrarlas y recorrerlas.
+  // Se cierran con "Resume" (F8) en el Playwright Inspector. PAUSA_FINAL=0 lo desactiva.
+  if (process.env.DEMO === '1' && process.env.PAUSA_FINAL !== '0') {
+    test.setTimeout(0)
+    await page.bringToFront()
+    await page.pause()
+  }
+
   await operador.context.close()
   await medico.context.close()
 })
