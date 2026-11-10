@@ -1,0 +1,18 @@
+{
+  "name": "emergenciaya-e2e",
+  "private": true,
+  "description": "Pruebas de sistema (E2E) de EmergenciaYA con Playwright",
+  "scripts": {
+    "test": "playwright test",
+    "demo": "cross-env DEMO=1 playwright test --workers=1",
+    "demo:recorrido": "cross-env DEMO=1 playwright test 02-recorrido-invitado --workers=1",
+    "ui": "playwright test --ui",
+    "report": "playwright show-report",
+    "install-browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
+    "@playwright/test": "1.65.0",
+    "cross-env": "7.0.3"
+  }
+}
