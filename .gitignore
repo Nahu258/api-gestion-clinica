@@ -32,3 +32,10 @@ desktop.ini
 skills-lock.json
 # --- Scripts locales de despliegue ---
 deploy.ps1
+deploy.bat
+
+# --- Resultados de la carga corta del pipeline ---
+carga/resultados/ci.json
+
+# --- Presentacion local de la defensa (no se versiona) ---
+*.pptx

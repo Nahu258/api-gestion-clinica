@@ -1,0 +1,235 @@
+# ==============================================================================
+# EmergenciaYA — Integración y despliegue continuos (AE4)
+#
+#   push / PR a main ──► tests backend ─┐
+#                        build frontend ├─► E2E (stack completo + Playwright)
+#                                       │        │
+#   push a main o tag vX.Y.Z ───────────┴────────┴─► imágenes a GHCR (registry)
+#   tag vX.Y.Z ─────────────────────────────────────► release + deploy a la VPS
+#
+# Secrets para el deploy (Settings → Secrets and variables → Actions):
+#   VPS_HOST, VPS_USER, VPS_SSH_KEY   (clave privada con acceso a la VPS)
+# ==============================================================================
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  APP_DIR: /root/emergenciaya
+  COMPOSE_PROD: docker-compose.prod.yml
+  URL_PRODUCCION: https://emergenciaya.duckdns.org
+
+jobs:
+  # ── 1. Pruebas unitarias, de integración y de concurrencia (Django) ────────
+  backend:
+    name: Tests backend (unitarias + integración + concurrencia)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: clinica
+          POSTGRES_USER: clinica
+          POSTGRES_PASSWORD: clinica
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U clinica -d clinica"
+          --health-interval 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-retries 10
+      rabbitmq:
+        image: rabbitmq:3-alpine
+        ports: ["5672:5672"]
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s --health-retries 10
+    env:
+      DATABASE_ENGINE: postgres
+      POSTGRES_HOST: localhost
+      POSTGRES_DB: clinica
+      POSTGRES_USER: clinica
+      POSTGRES_PASSWORD: clinica
+      REDIS_URL: redis://localhost:6379/1
+      RABBITMQ_URL: amqp://guest:guest@localhost:5672/%2F
+      DJANGO_SECRET_KEY: clave-solo-para-ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Chequeos de Django y migraciones al día
+        run: |
+          python manage.py check
+          python manage.py makemigrations --check --dry-run
+      - name: Tests
+        run: python manage.py test --noinput --verbosity 1
+
+  # ── 2. Build del frontend ──────────────────────────────────────────────────
+  frontend:
+    name: Build frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  # ── 3. Pruebas de sistema: stack completo en Docker + Playwright ───────────
+  e2e:
+    name: E2E (docker compose + Playwright)
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Levantar el stack completo
+        run: docker compose up -d --build
+      - name: Esperar a que la API y sus dependencias estén sanas
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5173/api/v1/salud | grep -q '"ok"'; then
+              curl -sS http://localhost:5173/api/v1/salud; echo; exit 0
+            fi
+            sleep 5
+          done
+          docker compose ps; docker compose logs api --tail 100; exit 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Instalar Playwright
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Correr la suite E2E
+        working-directory: e2e
+        run: npx playwright test
+      - name: Prueba de carga corta (k6, umbral p95)
+        run: |
+          docker run --rm --network host -u "$(id -u)" -v "$PWD/carga:/carga" \
+            -e BASE_URL=http://localhost:8000 -e PERFIL=ci \
+            grafana/k6:0.54.0 run /carga/k6-emergenciaya.js
+      - name: Logs del stack si algo falló
+        if: failure()
+        run: docker compose logs --tail 200
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reporte-playwright
+          path: e2e/playwright-report
+          retention-days: 14
+
+  # ── 4. Imágenes versionadas en el registry (GitHub Container Registry) ─────
+  imagenes:
+    name: Publicar imágenes en GHCR
+    needs: [e2e]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - nombre: api
+            contexto: .
+          - nombre: frontend
+            contexto: ./frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/emergenciaya-${{ matrix.nombre }}
+          # main → :main y :sha-abc1234 · tag v1.4.0 → :1.4.0, :1.4 y :latest
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.contexto }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.nombre }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.nombre }}
+
+  # ── 5. Release + despliegue remoto (solo con tag vX.Y.Z) ───────────────────
+  deploy:
+    name: Release y deploy a producción
+    needs: [imagenes]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    environment:
+      name: produccion
+      url: ${{ env.URL_PRODUCCION }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Crear la release en GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag || echo "La release ya existe"
+      - name: Desplegar en la VPS por SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_SSH_KEY" ]; then
+            echo "::warning::Faltan los secrets VPS_HOST/VPS_SSH_KEY: se omite el deploy."
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          echo "$VPS_SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/id_deploy "${VPS_USER:-root}@$VPS_HOST" bash -se <<EOF
+            set -e
+            cd "$APP_DIR"
+            git checkout --quiet main
+            git pull --ff-only --tags --quiet
+            git merge-base --is-ancestor "$GITHUB_REF_NAME" HEAD   # el tag ya está en main
+            cd frontend && docker run --rm -v \$(pwd):/app -w /app node:20-alpine sh -c 'npm ci && npm run build' | tail -3
+            cd "$APP_DIR" && docker compose -f "$COMPOSE_PROD" up -d --build
+            docker compose -f "$COMPOSE_PROD" ps
+          EOF
+      - name: Smoke test contra producción
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "$URL_PRODUCCION/api/v1/salud" | grep -q '"ok"'; then echo "Producción sana"; exit 0; fi
+            sleep 10
+          done
+          echo "::error::Producción no respondió sana después del deploy"; exit 1

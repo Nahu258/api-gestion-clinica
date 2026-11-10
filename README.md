@@ -1,14 +1,142 @@
-# API RESTful de Gestión de Turnos e Historial Clínico — AE2
+# EmergenciaYA — Sistema integral de guardias (AE4)
 
 **Materia:** Paradigmas y Lenguajes de Programación III — UCP / FAITA
-**Stack:** Python 3.13 · Django 6.1 · Django REST Framework 3.18 · SQLite · Redis · RabbitMQ
+**Stack:** Python 3.13 · Django 6.1 · DRF 3.18 · PostgreSQL 16 · Redis 7 · RabbitMQ 3 · React 18 + Vite · Playwright · k6
+**Producción:** <https://emergenciaya.duckdns.org>
 
-> **AE1 → AE2.** La versión grupal de AE1 es el commit `8ebf707` de `main`.
-> Esta rama (`ae2/nahuel`) es la evolución individual: módulos Clínica y Turnos
-> desacoplados, caché con Redis, eventos con RabbitMQ y control de concurrencia.
-> Lo nuevo de AE2 está resumido en la sección 5.
+> **AE1 → AE2 → AE4.** AE1 fue la API de turnos e historial clínico; AE2 la
+> desacopló en módulos (Clínica / Turnos) y sumó Redis, RabbitMQ y control de
+> concurrencia. AE4 integra todo en un sistema completo: frontend web, guardias
+> de emergencia con derivación a especialistas, seguridad activa, CI/CD,
+> pruebas de sistema y de carga. Lo de AE2 se conserva más abajo.
 
-## Dominio
+## AE4.1 Arranque
+
+```powershell
+docker compose up -d --build     # postgres, redis, rabbitmq, api, worker, consumidor, frontend
+```
+
+Frontend en <http://localhost:5173>, API en <http://localhost:8000/api/v1>,
+salud en <http://localhost:8000/api/v1/salud>. Al arrancar se cargan los datos
+de demo (`seed_demo`):
+
+| Rol | Email | Contraseña |
+|---|---|---|
+| Superadmin | `admin@emergenciaya.com.ar` | `Admin2026!` |
+| Operador (Sanatorio Boratti) | `administracion@boratti.com.ar` | `Boratti2026!` |
+| Médico (Clínica Médica) | `federico.sosa@boratti.com.ar` | `Medico2026!` |
+| Paciente | `camila.benitez@gmail.com` | `Paciente2026!` |
+
+## AE4.2 Flujos críticos de punta a punta
+
+1. **Invitado sin cuenta:** busca la guardia en el mapa → avisa "voy en camino" →
+   el operador del centro lo deriva a un especialista → el médico lo atiende y
+   cierra la consulta → el seguimiento del paciente se actualiza solo.
+2. **Paciente registrado:** mismo circuito con su cuenta → la atención queda en
+   su historial clínico, y nadie más puede verla.
+
+Los dos están automatizados con Playwright (ver [`e2e/README.md`](e2e/README.md)):
+
+```powershell
+cd e2e; npm install; npm run install-browsers
+npm test                 # 25 pruebas de sistema, ~1 min
+npm run demo             # navegador visible y en cámara lenta, para la defensa
+```
+
+## AE4.3 Seguridad
+
+| Control | Dónde |
+|---|---|
+| JWT por el header `Authorization: Bearer` (firma verificada; adulterado → 401) | `simplejwt`, `apps/auth_usuarios` |
+| RBAC por rol: ADMIN, OPERADOR_CENTRO, MEDICO, PACIENTE | `apps/auth_usuarios/permissions.py` |
+| **Prevención de IDOR/BOLA** en `GET/PATCH /atencion/solicitudes/{id}` | `apps/atencion/permissions.py` → `PuedeAccederSolicitud` |
+| La identidad de quien crea una solicitud sale del JWT, nunca del cuerpo | `SolicitudListaAPIView.post` |
+| Validación de entrada con serializers; errores con formato único, sin 500 | `core/exceptions.py` |
+| Cabeceras `X-Content-Type-Options: nosniff` y `X-Frame-Options: DENY` | `SecurityMiddleware` + `XFrameOptionsMiddleware` |
+
+**IDOR/BOLA.** Los ids de solicitud son correlativos: conocer el id no puede
+alcanzar para leer el nombre, teléfono y motivo de otra persona. Cada solicitud
+lleva un `codigo_seguimiento` aleatorio de 256 bits que se entrega **una sola
+vez** en la respuesta del `POST`. Para leerla o cancelarla hace falta:
+
+- el JWT de su dueño (paciente registrado), o
+- el header `X-Codigo-Seguimiento` (invitado; se compara en tiempo constante), o
+- ser el operador de *ese* centro, el médico asignado o un admin.
+
+El titular solo puede **cancelar**; el resto de las transiciones son del
+personal. Ante una negativa la API responde **404**, igual que si el id no
+existiera, para no revelar qué ids son válidos. Lo prueban
+`apps/atencion/tests.py` (sección IDOR/BOLA) y `e2e/tests/05` y `07`.
+
+## AE4.4 CI/CD, registry y versionado
+
+Pipeline en [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml):
+
+| Etapa | Cuándo | Qué hace |
+|---|---|---|
+| `backend` | todo push y PR | `manage.py check`, migraciones al día y los tests de Django contra PostgreSQL, Redis y RabbitMQ reales |
+| `frontend` | todo push y PR | `npm ci` + `vite build` |
+| `e2e` | después de los dos anteriores | `docker compose up`, espera `/salud`, corre Playwright y una carga corta de k6 con umbral de p95; sube el reporte HTML como artefacto |
+| `imagenes` | push a `main` o tag | publica `emergenciaya-api` y `emergenciaya-frontend` en GHCR (`ghcr.io/nahu258/...`) con tags `main`, `sha-xxxxxxx` y, en un release, `X.Y.Z`, `X.Y` y `latest` |
+| `deploy` | tag `vX.Y.Z` | crea la release de GitHub, despliega en la VPS por SSH y hace un smoke test contra `/api/v1/salud` de producción |
+
+Para publicar una versión: `git tag v4.0.0 && git push origin v4.0.0`.
+El deploy necesita los secrets `VPS_HOST`, `VPS_USER` y `VPS_SSH_KEY`; si
+faltan, la etapa se omite con un aviso.
+
+## AE4.5 Prueba de carga y latencias
+
+Script: [`carga/k6-emergenciaya.js`](carga/k6-emergenciaya.js). Mezcla de
+tráfico de una guardia: 70 % búsqueda de centros cercanos, 20 % invitado que
+avisa y consulta su seguimiento, 10 % paciente que inicia sesión y abre su
+historial. Rampa de 0 a **50 usuarios concurrentes** durante 3 minutos.
+
+```powershell
+docker run --rm --network api-gestion-clinica_default -v "${PWD}\carga:/carga" `
+  -e BASE_URL=http://api:8000 -e PERFIL=completo grafana/k6:0.54.0 run /carga/k6-emergenciaya.js
+```
+
+Resultado (10/11/2026, stack de `docker compose` en una notebook con Docker
+Desktop, servidor de desarrollo de Django; detalle en `carga/resultados/completo.json`):
+
+**4512 peticiones · 24,9 req/s · 0,00 % de errores**
+
+| Endpoint | Media | p95 | Máx |
+|---|---:|---:|---:|
+| **Global** | **131 ms** | **774 ms** | 1401 ms |
+| `GET /centros/cercanos/` | 71 ms | 178 ms | 432 ms |
+| `POST /atencion/solicitudes/` | 84 ms | 281 ms | 530 ms |
+| `GET /atencion/solicitudes/{id}/` | 49 ms | 154 ms | 409 ms |
+| `POST /auth/login/` | 887 ms | 1224 ms | 1401 ms |
+| `GET /pacientes/mi-historial/` | 42 ms | 130 ms | 225 ms |
+
+Se cumplen los umbrales definidos: menos de 1 % de errores y p95 global
+menor a 1,5 s.
+
+### Cuello de botella: el login
+
+El login es **10 veces más lento** que cualquier otro endpoint, aunque es solo
+el 10 % del tráfico, y es lo que sube el p95 global. La causa no es la base ni
+la red: Django guarda las contraseñas con **PBKDF2-SHA256 de 1.500.000
+iteraciones**, y verificar una cuesta ~0,7 s de CPU *a propósito* (es lo que
+frena un ataque de fuerza bruta). Con el servidor de desarrollo, mono-proceso,
+cada login además ocupa la CPU que necesitan las demás peticiones.
+
+Qué **no** hacer: bajar las iteraciones, porque debilita la protección de las
+contraseñas. Qué sí:
+
+1. **Escalar horizontalmente la API** con gunicorn y varios workers (uno por
+   núcleo): el hash es CPU pura y se paraleliza bien.
+2. **Loguear menos veces:** el refresh token (`/auth/refresh/`) renueva el
+   access token sin volver a verificar la contraseña.
+3. **Rate limiting por IP/cuenta en `/auth/login/`:** acota el costo de un
+   ataque y de paso protege contra fuerza bruta.
+
+---
+
+## Antecedente AE2: API de turnos e historial clínico
+
+### Dominio
 
 Sistema de gestión para un **centro médico**: reserva y seguimiento de turnos
 con profesionales de distintas especialidades, y registro del **historial
