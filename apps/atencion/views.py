@@ -15,6 +15,7 @@ from apps.atencion import services
 from apps.atencion.permissions import (
     CanViewFichaClinica,
     IsMedicoAsignadoOAdmin,
+    PuedeAccederSolicitud,
 )
 from apps.atencion.serializers import (
     CompletarAtencionSerializer,
@@ -22,6 +23,7 @@ from apps.atencion.serializers import (
     SolicitudAtencionSerializer,
     SolicitudEstadoSerializer,
 )
+from core.exceptions import RecursoNoEncontrado
 from core.permissions import IsOperadorCentro, IsPacienteRegistrado
 
 
@@ -38,10 +40,17 @@ class SolicitudListaAPIView(APIView):
         serializer = SolicitudAtencionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        solicitud = services.crear_solicitud(serializer.validated_data)
+        datos = dict(serializer.validated_data)
+        # La identidad sale del JWT, nunca del cuerpo de la petición.
+        datos["usuario_id"] = request.user.id if request.user.is_authenticated else None
+        solicitud = services.crear_solicitud(datos)
 
+        respuesta = SolicitudAtencionSerializer(solicitud).data
+        # Único momento en que se entrega el código: el invitado lo necesita
+        # para consultar o cancelar su solicitud sin cuenta.
+        respuesta["codigo_seguimiento"] = solicitud.codigo_seguimiento
         return Response(
-            SolicitudAtencionSerializer(solicitud).data,
+            respuesta,
             status=status.HTTP_201_CREATED,
             headers={"Location": f"/api/v1/atencion/solicitudes/{solicitud.pk}/"},
         )
@@ -53,17 +62,29 @@ class SolicitudDetalleAPIView(APIView):
 
     GET   /api/v1/atencion/solicitudes/{id}/   → 200 OK | 404
     PATCH /api/v1/atencion/solicitudes/{id}/   → 200 OK | 400 | 404 | 409
+
+    Acceso con control de propiedad (ver PuedeAccederSolicitud): el JWT del
+    dueño, el header X-Codigo-Seguimiento o el personal de la solicitud.
+    Sin acceso se responde 404, igual que si el id no existiera.
     """
 
-    def get(self, request: Request, solicitud_id: int) -> Response:
+    permission_classes = [PuedeAccederSolicitud]
+
+    def _obtener_autorizada(self, request: Request, solicitud_id: int):
         solicitud = services.obtener_solicitud(solicitud_id)
+        if not PuedeAccederSolicitud().has_object_permission(request, self, solicitud):
+            raise RecursoNoEncontrado(f"No existe una solicitud con id {solicitud_id}.")
+        return solicitud
+
+    def get(self, request: Request, solicitud_id: int) -> Response:
+        solicitud = self._obtener_autorizada(request, solicitud_id)
         return Response(
             SolicitudAtencionSerializer(solicitud).data,
             status=status.HTTP_200_OK,
         )
 
     def patch(self, request: Request, solicitud_id: int) -> Response:
-        solicitud = services.obtener_solicitud(solicitud_id)
+        solicitud = self._obtener_autorizada(request, solicitud_id)
 
         serializer = SolicitudEstadoSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

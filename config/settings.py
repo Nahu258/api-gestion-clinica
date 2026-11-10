@@ -213,6 +213,10 @@ REST_FRAMEWORK = {
 # ---------------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS")
 CORS_ALLOW_CREDENTIALS = False
+from corsheaders.defaults import default_headers  # noqa: E402
+
+# Header con el que el invitado prueba que es dueño de su solicitud (anti-IDOR).
+CORS_ALLOW_HEADERS = (*default_headers, "x-codigo-seguimiento")
 
 # ---------------------------------------------------------------------------
 # Cache y estado efimero (Redis): historial clinico y eventos ya procesados

@@ -206,6 +206,19 @@ class SolicitudEndpointTest(APITestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+    @staticmethod
+    def _codigo(resp_post) -> dict:
+        return {"HTTP_X_CODIGO_SEGUIMIENTO": resp_post.data["codigo_seguimiento"]}
+
+    def _operador(self):
+        from django.contrib.auth import get_user_model
+        from apps.auth_usuarios.models import PerfilExtendido as PerfilUsuario
+        user = get_user_model().objects.create_user("oper", "oper@x.com", "Clave12345!")
+        PerfilUsuario.objects.update_or_create(
+            usuario=user, defaults={"rol": "OPERADOR_CENTRO", "centro": self.centro}
+        )
+        return user
+
     def _payload_base(self, **cambios) -> dict:
         datos = {
             "centro_id": self.centro.pk,
@@ -222,10 +235,26 @@ class SolicitudEndpointTest(APITestCase):
         self.assertIn("Location", resp.headers)
         self.assertEqual(resp.data["estado"], "pendiente")
 
-    def test_post_201_usuario_registrado(self):
+    def test_post_201_usuario_registrado_toma_id_del_jwt(self):
+        from django.contrib.auth import get_user_model
+        user = get_user_model().objects.create_user("pac", "pac@x.com", "Clave12345!")
+        self.client.force_authenticate(user)
         resp = self.client.post(self.URL_LISTA, self._payload_base(usuario_id=5), format="json")
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(resp.data["usuario_id"], 5)
+        # El usuario_id del cuerpo se ignora: manda el JWT.
+        self.assertEqual(resp.data["usuario_id"], user.id)
+
+    def test_post_invitado_ignora_usuario_id_del_cliente(self):
+        resp = self.client.post(self.URL_LISTA, self._payload_base(usuario_id=5), format="json")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(resp.data["usuario_id"])
+
+    def test_post_devuelve_codigo_seguimiento_y_get_no(self):
+        resp = self.client.post(self.URL_LISTA, self._payload_base(), format="json")
+        codigo = resp.data["codigo_seguimiento"]
+        self.assertGreaterEqual(len(codigo), 40)
+        get = self.client.get(self.url_detalle(resp.data["id"]), HTTP_X_CODIGO_SEGUIMIENTO=codigo)
+        self.assertNotIn("codigo_seguimiento", get.data)
 
     def test_post_201_con_coordenadas(self):
         resp = self.client.post(
@@ -256,7 +285,7 @@ class SolicitudEndpointTest(APITestCase):
     def test_get_200_solicitud_existente(self):
         resp_post = self.client.post(self.URL_LISTA, self._payload_base(), format="json")
         pk = resp_post.data["id"]
-        resp = self.client.get(self.url_detalle(pk))
+        resp = self.client.get(self.url_detalle(pk), **self._codigo(resp_post))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["id"], pk)
         self.assertIn("centro_nombre", resp.data)
@@ -270,6 +299,7 @@ class SolicitudEndpointTest(APITestCase):
     def test_patch_200_transicion_valida(self):
         resp_post = self.client.post(self.URL_LISTA, self._payload_base(), format="json")
         pk = resp_post.data["id"]
+        self.client.force_authenticate(self._operador())
         resp = self.client.patch(self.url_detalle(pk), {"estado": "aceptado"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["estado"], "aceptado")
@@ -278,18 +308,69 @@ class SolicitudEndpointTest(APITestCase):
         resp_post = self.client.post(self.URL_LISTA, self._payload_base(), format="json")
         pk = resp_post.data["id"]
         # Saltar de pendiente a atendido sin pasar por aceptado/en_camino
+        self.client.force_authenticate(self._operador())
         resp = self.client.patch(self.url_detalle(pk), {"estado": "atendido"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
 
     def test_patch_400_estado_invalido(self):
         resp_post = self.client.post(self.URL_LISTA, self._payload_base(), format="json")
         pk = resp_post.data["id"]
+        self.client.force_authenticate(self._operador())
         resp = self.client.patch(self.url_detalle(pk), {"estado": "turbiado"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_patch_404_solicitud_inexistente(self):
         resp = self.client.patch(self.url_detalle(9999), {"estado": "aceptado"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    # ── IDOR / BOLA ─────────────────────────────────────────────────────────
+
+    def test_get_sin_codigo_ni_jwt_responde_404(self):
+        pk = self.client.post(self.URL_LISTA, self._payload_base(), format="json").data["id"]
+        self.assertEqual(self.client.get(self.url_detalle(pk)).status_code, 404)
+
+    def test_get_con_codigo_ajeno_responde_404(self):
+        a = self.client.post(self.URL_LISTA, self._payload_base(), format="json")
+        b = self.client.post(self.URL_LISTA, self._payload_base(), format="json")
+        resp = self.client.get(self.url_detalle(a.data["id"]), **self._codigo(b))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_paciente_no_ve_solicitud_de_otro_paciente(self):
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        duenio = User.objects.create_user("duenio", "d@x.com", "Clave12345!")
+        intruso = User.objects.create_user("intruso", "i@x.com", "Clave12345!")
+        self.client.force_authenticate(duenio)
+        pk = self.client.post(self.URL_LISTA, self._payload_base(), format="json").data["id"]
+        self.assertEqual(self.client.get(self.url_detalle(pk)).status_code, 200)
+        self.client.force_authenticate(intruso)
+        self.assertEqual(self.client.get(self.url_detalle(pk)).status_code, 404)
+        resp = self.client.patch(self.url_detalle(pk), {"estado": "cancelado"}, format="json")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_patch_sin_codigo_no_puede_cancelar(self):
+        pk = self.client.post(self.URL_LISTA, self._payload_base(), format="json").data["id"]
+        resp = self.client.patch(self.url_detalle(pk), {"estado": "cancelado"}, format="json")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_invitado_con_codigo_cancela_pero_no_acepta(self):
+        post = self.client.post(self.URL_LISTA, self._payload_base(), format="json")
+        pk = post.data["id"]
+        resp = self.client.patch(self.url_detalle(pk), {"estado": "aceptado"}, format="json", **self._codigo(post))
+        self.assertEqual(resp.status_code, 404)
+        resp = self.client.patch(self.url_detalle(pk), {"estado": "cancelado"}, format="json", **self._codigo(post))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["estado"], "cancelado")
+
+    def test_operador_de_otro_centro_no_accede(self):
+        from django.contrib.auth import get_user_model
+        from apps.auth_usuarios.models import PerfilExtendido as PerfilUsuario
+        otro_centro = crear_centro(nombre="Otro Centro")
+        user = get_user_model().objects.create_user("oper2", "o2@x.com", "Clave12345!")
+        PerfilUsuario.objects.update_or_create(usuario=user, defaults={"rol": "OPERADOR_CENTRO", "centro": otro_centro})
+        pk = self.client.post(self.URL_LISTA, self._payload_base(), format="json").data["id"]
+        self.client.force_authenticate(user)
+        self.assertEqual(self.client.get(self.url_detalle(pk)).status_code, 404)
 
     def test_405_get_en_lista(self):
         """GET en la colección no está soportado."""

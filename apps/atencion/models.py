@@ -7,9 +7,16 @@ Soporta tanto usuarios registrados (usuario_id) como invitados
 (nombre_invitado + telefono_invitado, usuario_id=None).
 """
 
+import secrets
+
 from django.db import models
 
 from apps.centros.models import CentroEmergencia
+
+
+def generar_codigo_seguimiento() -> str:
+    """Secreto de 256 bits que habilita al invitado a seguir su propia solicitud."""
+    return secrets.token_urlsafe(32)
 
 
 class SolicitudAtencion(models.Model):
@@ -51,6 +58,16 @@ class SolicitudAtencion(models.Model):
     telefono_invitado = models.CharField(
         max_length=30, blank=True, default="",
         verbose_name="Teléfono del invitado",
+    )
+
+    # Capacidad de acceso para quien no tiene cuenta (prevención de IDOR/BOLA):
+    # el id es correlativo y adivinable, este código no. Solo se devuelve una
+    # vez, en la respuesta del POST.
+    codigo_seguimiento = models.CharField(
+        max_length=64,
+        default=generar_codigo_seguimiento,
+        editable=False,
+        verbose_name="Código secreto de seguimiento",
     )
 
     # ── Dónde ───────────────────────────────────────────────────────────────

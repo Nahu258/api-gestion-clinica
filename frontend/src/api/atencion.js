@@ -12,6 +12,29 @@ import { getAuthHeaders } from './auth.js'
 const API_BASE = '/api/v1'
 export const KEY_SOLICITUD_ID = 'emergenciaya_solicitud_id'
 export const KEY_ULTIMA_SOLICITUD = 'emergenciaya_ultima_solicitud'
+const PREFIJO_CODIGO = 'emergenciaya_codigo_'
+
+/**
+ * Código secreto que el backend entrega al crear la solicitud. Sin él (o sin
+ * el JWT del dueño) la API responde 404: el id solo no alcanza (anti-IDOR).
+ */
+function guardarCodigo(id, codigo) {
+  if (!codigo) return
+  try {
+    localStorage.setItem(PREFIJO_CODIGO + id, codigo)
+  } catch {
+    // Ignorar fallos de quota
+  }
+}
+
+function headersSeguimiento(id) {
+  try {
+    const codigo = localStorage.getItem(PREFIJO_CODIGO + id)
+    return codigo ? { 'X-Codigo-Seguimiento': codigo } : {}
+  } catch {
+    return {}
+  }
+}
 
 /**
  * Envía una nueva solicitud de atención urgente o aviso de camino.
@@ -50,7 +73,8 @@ export async function crearSolicitud(payload) {
       throw new Error(msg || `Error ${res.status} al crear la solicitud de atención.`)
     }
 
-    const data = await res.json()
+    const { codigo_seguimiento: codigo, ...data } = await res.json()
+    guardarCodigo(data.id, codigo)
 
     // Guardar en sessionStorage para persistencia ante recarga de pantalla (criterio AE3-10)
     try {
@@ -97,6 +121,7 @@ export async function obtenerSolicitud(id) {
       headers: {
         'Accept': 'application/json',
         ...getAuthHeaders(),
+        ...headersSeguimiento(id),
       },
     })
 
@@ -136,6 +161,7 @@ export async function cancelarSolicitud(id) {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
       ...getAuthHeaders(),
+      ...headersSeguimiento(id),
     },
     body: JSON.stringify({ estado: 'cancelado' }),
   })

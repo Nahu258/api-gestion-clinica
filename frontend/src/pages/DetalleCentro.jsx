@@ -376,7 +376,7 @@ export default function DetalleCentro() {
             <form onSubmit={handleEnviarSolicitud} className="modal-form-body">
               {/* Selector de Síntomas Rápidos (1 toque) */}
               <div className="form-field-group">
-                <label className="form-field-label">
+                <label htmlFor="input-motivo-consulta" className="form-field-label">
                   Motivo de la urgencia (seleccioná o escribí):
                 </label>
                 <div className="quick-symptoms-chips" role="group" aria-label="Síntomas comunes">

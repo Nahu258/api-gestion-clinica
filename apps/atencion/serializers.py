@@ -19,7 +19,9 @@ class SolicitudAtencionSerializer(serializers.ModelSerializer):
         centro_id     int       requerido
         modo          str       requerido ('aviso' | 'solicitud')
         motivo        str       opcional
-        usuario_id    int       opcional (null = invitado)
+        usuario_id    —         NO se acepta del cliente: lo fija la vista
+                                desde el JWT (null = invitado). Evita que un
+                                cliente cree solicitudes a nombre de otro.
         nombre_invitado str     opcional
         telefono_invitado str   opcional
         lat_usuario   float     opcional
@@ -85,7 +87,7 @@ class SolicitudAtencionSerializer(serializers.ModelSerializer):
             "actualizado_en",
         ]
         read_only_fields = [
-            "id", "estado", "diagnostico", "indicaciones", "atendido_en",
+            "id", "estado", "usuario_id", "diagnostico", "indicaciones", "atendido_en",
             "creado_en", "actualizado_en",
         ]
 
