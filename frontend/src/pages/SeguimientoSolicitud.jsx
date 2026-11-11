@@ -1,498 +1,408 @@
 /**
- * SeguimientoSolicitud.jsx - Centro de Seguimiento y Despacho de Guardia en Vivo.
+ * SeguimientoSolicitud.jsx - Seguimiento en vivo de un aviso de guardia.
  *
- * Épica 4 (AE4-10, issue #19):
- *   - Polling cada 10s con indicador de latido activo en tiempo real.
- *   - Transición a 'aceptado': animación de confirmación médica + audio Web Audio API + vibración háptica.
- *   - Stepper de progreso clínico con barra continua e íconos de estado.
- *   - Instrucciones claras para el paciente al momento de ingresar a la guardia.
- *   - Enlace directo a Google Maps para navegación GPS paso a paso.
- *   - Botón directo de llamado telefónico al centro médico.
+ * - Consulta el estado cada 10 segundos y se detiene cuando la atención
+ *   terminó o se canceló.
+ * - Recorrido en 4 pasos; cubre todos los estados del backend, incluidos
+ *   "en camino" y "derivado a especialista".
+ * - Cuando el centro responde por primera vez suena un aviso corto y vibra.
+ * - Al finalizar muestra el diagnóstico y permite imprimir la constancia.
+ * - Sin red se muestra el último estado conocido y se avisa.
  */
 
-import { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
   Check,
   CheckCircle,
   ClipboardText,
-  ClockCounterClockwise,
-  FirstAidKit,
   HourglassMedium,
   Hospital,
-  LockSimple,
+  Lightning,
   MagnifyingGlass,
   MapPin,
   MapTrifold,
   PaperPlaneTilt,
   Phone,
+  Printer,
   Stethoscope,
+  UserCirclePlus,
   XCircle,
 } from '@phosphor-icons/react'
 
-import {
-  obtenerSolicitud,
-  cancelarSolicitud,
-  KEY_SOLICITUD_ID,
-  obtenerUltimaSolicitudGuardada,
-} from '../api/atencion.js'
+import Navbar from '../components/Navbar.jsx'
+import HojaAtencion from '../components/HojaAtencion.jsx'
+import { cancelarSolicitud, obtenerSolicitud, obtenerSolicitudActivaId } from '../api/atencion.js'
+import { ESTADO, hora } from '../utils/solicitudes.js'
 
-// Web Audio API sintético para confirmación sonora
-function reproducirSonidoAceptado() {
-  try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext
-    if (!AudioCtx) return
-    const ctx = new AudioCtx()
+const INTERVALO_MS = 10000
 
-    const ahora = ctx.currentTime
-    const osc1 = ctx.createOscillator()
-    const osc2 = ctx.createOscillator()
-    const gainNode = ctx.createGain()
-
-    osc1.type = 'sine'
-    osc2.type = 'triangle'
-
-    osc1.frequency.setValueAtTime(523.25, ahora)
-    osc1.frequency.exponentialRampToValueAtTime(783.99, ahora + 0.15)
-
-    osc2.frequency.setValueAtTime(659.25, ahora + 0.05)
-    osc2.frequency.exponentialRampToValueAtTime(1046.5, ahora + 0.2)
-
-    gainNode.gain.setValueAtTime(0.25, ahora)
-    gainNode.gain.exponentialRampToValueAtTime(0.01, ahora + 0.45)
-
-    osc1.connect(gainNode)
-    osc2.connect(gainNode)
-    gainNode.connect(ctx.destination)
-
-    osc1.start(ahora)
-    osc2.start(ahora + 0.05)
-    osc1.stop(ahora + 0.45)
-    osc2.stop(ahora + 0.45)
-  } catch {
-    // Si el navegador bloquea audio sin interacción, ignorar silenciosamente
-  }
-}
-
-function vibrarDispositivo() {
-  if ('vibrate' in navigator) {
-    try {
-      navigator.vibrate([100, 50, 150])
-    } catch {
-      // Ignorar fallos de vibración
-    }
-  }
-}
-
-const ESTADOS = {
-  PENDIENTE:   'pendiente',
-  ACEPTADO:    'aceptado',
-  EN_ATENCION: 'en_atencion',
-  ATENDIDO:    'atendido',
-  CANCELADO:   'cancelado',
-}
-
-const PASOS_STEPPER = [
-  { key: ESTADOS.PENDIENTE,   label: 'Aviso enviado',       Icon: PaperPlaneTilt },
-  { key: ESTADOS.ACEPTADO,    label: 'Guardia alertada',    Icon: Stethoscope },
-  { key: ESTADOS.EN_ATENCION, label: 'En triage/atención',  Icon: Hospital },
-  { key: ESTADOS.ATENDIDO,    label: 'Atención completada', Icon: CheckCircle },
+const PASOS = [
+  { label: 'Aviso enviado', Icon: PaperPlaneTilt },
+  { label: 'Guardia alertada', Icon: Hospital },
+  { label: 'Con el médico', Icon: Stethoscope },
+  { label: 'Atención completada', Icon: CheckCircle },
 ]
+
+/** Qué se le dice al paciente en cada estado y en qué paso del recorrido está. */
+const VISTAS = {
+  [ESTADO.PENDIENTE]: {
+    paso: 0,
+    Icon: HourglassMedium,
+    etiqueta: 'Esperando respuesta',
+    titulo: 'Aviso enviado al centro de salud',
+    texto: 'El centro recibió tu aviso. Si vas manejando, hacelo con precaución. Al llegar, acercate a la mesa de triage y decí tu nombre.',
+  },
+  [ESTADO.ACEPTADO]: {
+    paso: 1,
+    Icon: CheckCircle,
+    etiqueta: 'Guardia confirmada',
+    titulo: 'El centro confirmó tu llegada',
+    texto: 'El equipo de triage ya sabe que vas. Tené a mano tu DNI y la credencial de la obra social si tenés. Entrá por el acceso de guardia.',
+    tono: 'ok',
+  },
+  [ESTADO.EN_CAMINO]: {
+    paso: 1,
+    Icon: CheckCircle,
+    etiqueta: 'Te están esperando',
+    titulo: 'La guardia te espera',
+    texto: 'El centro registró que estás en camino. Al llegar, presentate en la mesa de triage con tu DNI.',
+    tono: 'ok',
+  },
+  [ESTADO.DERIVADO]: {
+    paso: 2,
+    Icon: Stethoscope,
+    etiqueta: 'Derivado a especialista',
+    titulo: 'Ya tenés médico asignado',
+    texto: 'El triage te derivó a un especialista. Quedate en la sala de espera: te van a llamar por tu nombre.',
+    tono: 'ok',
+  },
+  [ESTADO.EN_ATENCION]: {
+    paso: 2,
+    Icon: Stethoscope,
+    etiqueta: 'En atención',
+    titulo: 'Atención médica en curso',
+    texto: 'Un médico está atendiendo tu caso. Seguí las indicaciones del equipo.',
+    tono: 'ok',
+  },
+  [ESTADO.ATENDIDO]: {
+    paso: 3,
+    Icon: CheckCircle,
+    etiqueta: 'Atención finalizada',
+    titulo: 'Atención médica completada',
+    texto: 'La consulta terminó. Abajo tenés el diagnóstico y las indicaciones del médico.',
+    tono: 'ok',
+  },
+  [ESTADO.CANCELADO]: {
+    paso: -1,
+    Icon: XCircle,
+    etiqueta: 'Aviso cancelado',
+    titulo: 'Solicitud cancelada',
+    texto: 'El aviso se canceló y el centro ya no te espera. Si todavía necesitás atención, buscá otro centro en el mapa o llamá al 107.',
+    tono: 'idle',
+  },
+}
+
+function sonarConfirmacion() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext
+    if (!Ctx) return
+    const ctx = new Ctx()
+    const ahora = ctx.currentTime
+    const ganancia = ctx.createGain()
+    ganancia.gain.setValueAtTime(0.22, ahora)
+    ganancia.gain.exponentialRampToValueAtTime(0.01, ahora + 0.45)
+    ganancia.connect(ctx.destination)
+    ;[[523.25, 783.99, 0], [659.25, 1046.5, 0.05]].forEach(([desde, hasta, demora]) => {
+      const osc = ctx.createOscillator()
+      osc.frequency.setValueAtTime(desde, ahora + demora)
+      osc.frequency.exponentialRampToValueAtTime(hasta, ahora + demora + 0.15)
+      osc.connect(ganancia)
+      osc.start(ahora + demora)
+      osc.stop(ahora + 0.45)
+    })
+    navigator.vibrate?.([100, 50, 150])
+  } catch {
+    // El navegador puede bloquear audio sin interacción previa: no es un error
+  }
+}
 
 export default function SeguimientoSolicitud() {
   const { id: paramId } = useParams()
-  const navigate = useNavigate()
   const location = useLocation()
 
-  const [solicitudId, setSolicitudId] = useState(() => {
-    if (paramId) return paramId
-    if (location.state?.solicitud?.id) return String(location.state.solicitud.id)
-    return sessionStorage.getItem(KEY_SOLICITUD_ID) || null
-  })
+  const solicitudId = paramId || (location.state?.solicitud?.id ? String(location.state.solicitud.id) : obtenerSolicitudActivaId())
 
   const [solicitud, setSolicitud] = useState(location.state?.solicitud || null)
-  const [cargando, setCargando] = useState(!solicitud)
+  const [cargando, setCargando] = useState(!location.state?.solicitud)
   const [error, setError] = useState(null)
+  const [confirmando, setConfirmando] = useState(false)
   const [cancelando, setCancelando] = useState(false)
-  const [mostrarConfirmacionCancelar, setMostrarConfirmacionCancelar] = useState(false)
-  const [ultimaActualizacion, setUltimaActualizacion] = useState(new Date())
+  const [errorCancelar, setErrorCancelar] = useState(null)
 
-  const estadoAnteriorRef = useRef(solicitud?.estado || null)
-  const pollingIntervalRef = useRef(null)
-
-  useEffect(() => {
-    if (solicitudId) {
-      sessionStorage.setItem(KEY_SOLICITUD_ID, String(solicitudId))
-    }
-  }, [solicitudId])
+  const estadoPrevio = useRef(solicitud?.estado || null)
 
   useEffect(() => {
     if (!solicitudId) {
-      const guardadoId = sessionStorage.getItem(KEY_SOLICITUD_ID)
-      if (guardadoId) {
-        setSolicitudId(guardadoId)
-        return
-      }
-      const ultima = obtenerUltimaSolicitudGuardada()
-      if (ultima) {
-        setSolicitud(ultima)
-        setSolicitudId(String(ultima.id))
-        return
-      }
-      setError('No se encontró ninguna solicitud activa para realizar el seguimiento.')
+      setError('No hay ningún aviso en curso en este dispositivo.')
       setCargando(false)
-      return
+      return undefined
     }
 
     let activo = true
+    let intervalo = null
 
-    const consultarEstado = async () => {
+    const consultar = async () => {
       try {
         const data = await obtenerSolicitud(solicitudId)
         if (!activo) return
-
         setSolicitud(data)
-        setCargando(false)
-        setUltimaActualizacion(new Date())
+        setError(null)
 
-        if (
-          data.estado === ESTADOS.ACEPTADO &&
-          estadoAnteriorRef.current &&
-          estadoAnteriorRef.current !== ESTADOS.ACEPTADO
-        ) {
-          reproducirSonidoAceptado()
-          vibrarDispositivo()
+        if (estadoPrevio.current === ESTADO.PENDIENTE && data.estado !== ESTADO.PENDIENTE && data.estado !== ESTADO.CANCELADO) {
+          sonarConfirmacion()
         }
+        estadoPrevio.current = data.estado
 
-        estadoAnteriorRef.current = data.estado
-
-        if (data.estado === ESTADOS.ATENDIDO || data.estado === ESTADOS.CANCELADO) {
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current)
-            pollingIntervalRef.current = null
-          }
-        }
+        if (data.estado === ESTADO.ATENDIDO || data.estado === ESTADO.CANCELADO) clearInterval(intervalo)
       } catch (err) {
         if (!activo) return
-        setCargando(false)
+        // Con un estado ya en pantalla, un fallo puntual no lo reemplaza
+        setSolicitud((actual) => {
+          if (!actual) setError(err.message || 'No se pudo consultar el aviso.')
+          return actual
+        })
+      } finally {
+        if (activo) setCargando(false)
       }
     }
 
-    consultarEstado()
-    pollingIntervalRef.current = setInterval(consultarEstado, 10000)
+    consultar()
+    intervalo = setInterval(consultar, INTERVALO_MS)
 
     return () => {
       activo = false
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current)
-        pollingIntervalRef.current = null
-      }
+      clearInterval(intervalo)
     }
   }, [solicitudId])
 
-  const handleCancelar = async () => {
-    if (!solicitudId) return
+  const cancelar = async () => {
     setCancelando(true)
+    setErrorCancelar(null)
     try {
       const data = await cancelarSolicitud(solicitudId)
       setSolicitud(data)
-      setCancelando(false)
-      setMostrarConfirmacionCancelar(false)
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current)
-        pollingIntervalRef.current = null
-      }
+      estadoPrevio.current = data.estado
+      setConfirmando(false)
     } catch (err) {
+      setErrorCancelar(err.message || 'No se pudo cancelar el aviso.')
+    } finally {
       setCancelando(false)
-      setMostrarConfirmacionCancelar(false)
-      alert(err.message || 'No se pudo cancelar la solicitud.')
-    }
-  }
-
-  const formatearHora = (isoDate) => {
-    if (!isoDate) return ''
-    try {
-      const date = new Date(isoDate)
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    } catch {
-      return ''
     }
   }
 
   if (cargando) {
     return (
-      <div className="seguimiento-screen-layout">
-        <div className="seguimiento-hub-card">
-          <div className="seguimiento-loading-pulse">
-            <span className="action-spinner action-spinner--red" aria-hidden="true" />
-            <h3>Cargando tu aviso...</h3>
-            <p>Consultando el estado con el centro.</p>
-          </div>
-        </div>
+      <div className="ui-shell">
+        <Navbar />
+        <main className="ui-page ui-page--narrow" aria-busy="true">
+          <div className="ui-skeleton" style={{ height: 14, width: 120, marginBottom: 24 }} />
+          <div className="ui-skeleton" style={{ height: 150, marginBottom: 16 }} />
+          <div className="ui-skeleton" style={{ height: 96, marginBottom: 16 }} />
+          <div className="ui-skeleton" style={{ height: 120 }} />
+        </main>
       </div>
     )
   }
 
   if (error || !solicitud) {
     return (
-      <div className="seguimiento-screen-layout">
-        <div className="seguimiento-hub-card">
-          <MagnifyingGlass size={44} color="#64748b" />
-          <h2>Sin aviso activo</h2>
-          <p style={{ color: '#64748b' }}>
-            {error || 'No tenés ningún aviso o solicitud de guardia activa en este momento.'}
-          </p>
-          <Link to="/mapa" className="btn btn--hero-primary" style={{ marginTop: '1rem' }}>
-            Ver mapa de centros
-          </Link>
-        </div>
+      <div className="ui-shell">
+        <Navbar />
+        <main className="ui-page ui-page--narrow">
+          <div className="ui-card">
+            <div className="ui-empty">
+              <div className="ui-empty__icon"><MagnifyingGlass size={22} /></div>
+              <h1 className="ui-empty__title">Sin aviso activo</h1>
+              <p className="ui-empty__text">{error || 'No tenés ningún aviso de guardia en curso.'}</p>
+              <Link to="/mapa" className="ui-btn ui-btn--primary" style={{ marginTop: 16 }}>Buscar guardia</Link>
+            </div>
+          </div>
+        </main>
       </div>
     )
   }
 
-  const estado = solicitud.estado
-  const esAceptado = estado === ESTADOS.ACEPTADO
-  const esCancelado = estado === ESTADOS.CANCELADO
-  const esAtendido = estado === ESTADOS.ATENDIDO
-  const esEnAtencion = estado === ESTADOS.EN_ATENCION
-
-  const indiceActual = PASOS_STEPPER.findIndex((p) => p.key === estado)
+  const vista = VISTAS[solicitud.estado] || VISTAS[ESTADO.PENDIENTE]
+  const esAtendido = solicitud.estado === ESTADO.ATENDIDO
+  const esCancelado = solicitud.estado === ESTADO.CANCELADO
+  const enCurso = !esAtendido && !esCancelado
+  const puedeCancelar = [ESTADO.PENDIENTE, ESTADO.ACEPTADO, ESTADO.EN_CAMINO].includes(solicitud.estado) && !solicitud.esOffline
+  const sinConexion = solicitud.esOffline || solicitud._sinConexion
 
   return (
-    <div className="seguimiento-screen-layout">
-      {/* ── Topbar de navegación ── */}
-      <header className="seguimiento-topbar">
-        <Link to="/mapa" className="seguimiento-back-link">
+    <div className="ui-shell">
+      <Navbar />
+
+      <main className="ui-page ui-page--narrow sg">
+        <Link to="/mapa" className="ui-backlink no-print">
           <ArrowLeft size={16} aria-hidden="true" />
-          <span>Volver al mapa</span>
+          Volver al mapa
         </Link>
-        <span className="live-heartbeat-pill">
-          <span className="pulse-green-dot" aria-hidden="true" />
-          <span>Seguimiento en vivo</span>
-        </span>
-      </header>
 
-      <main className="seguimiento-content-container">
-        <article className="seguimiento-hub-card">
-          {/* ── Header de Estado Dinámico ── */}
-          <div className="status-hero-banner">
-            <div className={`status-radar-ring ${esAceptado ? 'status-radar-ring--success' : ''}`}>
-              <span className="status-radar-icon">
-                {esAceptado && <CheckCircle size={34} weight="fill" />}
-                {estado === ESTADOS.PENDIENTE && <HourglassMedium size={34} />}
-                {esEnAtencion && <Stethoscope size={34} />}
-                {esAtendido && <FirstAidKit size={34} />}
-                {esCancelado && <XCircle size={34} />}
-              </span>
-            </div>
-
-            <div className="status-hero-text">
-              <span className="status-category-pill">
-                {esAceptado && 'Guardia confirmada'}
-                {estado === ESTADOS.PENDIENTE && 'Esperando respuesta'}
-                {esEnAtencion && 'En atención'}
-                {esAtendido && 'Atención finalizada'}
-                {esCancelado && 'Aviso cancelado'}
-              </span>
-
-              <h1 className="status-headline">
-                {esAceptado && 'El centro confirmó tu llegada'}
-                {estado === ESTADOS.PENDIENTE && 'Aviso enviado al centro de salud'}
-                {esEnAtencion && 'Atención médica en curso'}
-                {esAtendido && 'Atención médica completada'}
-                {esCancelado && 'Solicitud cancelada'}
-              </h1>
-
-              <h2 className="status-center-title">
-                {solicitud.centro_nombre || 'Centro de Emergencia'}
-              </h2>
-
-              <p className="status-timestamp">
-                Registrado a las {formatearHora(solicitud.creado_en) || 'recientemente'} · Posadas
-              </p>
-            </div>
+        {sinConexion && (
+          <div className="ui-alert sg__offline no-print" role="status">
+            <Lightning size={18} weight="fill" style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>
+              {solicitud.esOffline
+                ? 'No hay conexión: el aviso quedó guardado en este dispositivo y el centro todavía no lo recibió. Llamá al centro o al 107.'
+                : 'Sin conexión: se muestra el último estado conocido. Se actualiza solo cuando vuelva la red.'}
+            </span>
           </div>
+        )}
 
-          {/* ── Stepper de Progreso Clínico ── */}
-          {!esCancelado && (
-            <div className="clinical-stepper" aria-label="Progreso de atención de emergencia">
-              <div className="stepper-track-bar">
-                <div
-                  className="stepper-progress-fill"
-                  style={{
-                    width: `${Math.max(0, Math.min(100, (indiceActual / (PASOS_STEPPER.length - 1)) * 100))}%`,
-                  }}
-                />
-              </div>
-
-              <div className="stepper-nodes-row">
-                {PASOS_STEPPER.map((paso, idx) => {
-                  // Atendido es el final del recorrido: todos los pasos quedan
-                  // completados (verdes) y ninguno sigue "en curso" (rojo).
-                  const completado = esAtendido || indiceActual > idx
-                  const activo = !esAtendido && indiceActual === idx
-                  return (
-                    <div
-                      key={paso.key}
-                      className={`stepper-node ${completado ? 'stepper-node--completed' : ''} ${activo ? 'stepper-node--active' : ''}`}
-                    >
-                      <div className="node-bubble">
-                        {completado ? <Check size={16} weight="bold" /> : <paso.Icon size={18} />}
-                      </div>
-                      <span className="node-caption">{paso.label}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* ── Mensaje e Instrucciones Médicas ── */}
-          <div className="triage-instruction-card">
-            <h3 className="triage-instruction-title">
-              <ClipboardText size={18} aria-hidden="true" />
-              <span>Qué hacer al llegar</span>
-            </h3>
-
-            {estado === ESTADOS.PENDIENTE && (
-              <p className="triage-instruction-desc">
-                El centro recibió tu aviso. Si vas manejando, hacelo con precaución. Al llegar, acercate a la mesa de triage y decí tu nombre.
-              </p>
-            )}
-
-            {esAceptado && (
-              <p className="triage-instruction-desc">
-                <strong>El equipo de triage ya sabe que vas.</strong> Tené a mano tu DNI y la credencial de la obra social si tenés. Entrá por el acceso de guardia.
-              </p>
-            )}
-
-            {esEnAtencion && (
-              <p className="triage-instruction-desc">
-                Un médico está atendiendo tu caso. Seguí las indicaciones del equipo.
-              </p>
-            )}
-
-            {esAtendido && (
-              <p className="triage-instruction-desc">
-                La consulta terminó. Si tenés cuenta, el diagnóstico y las indicaciones quedan en tu historial.
-              </p>
-            )}
-
-            {esCancelado && (
-              <p className="triage-instruction-desc">
-                Cancelaste el aviso. Si todavía necesitás atención, buscá otro centro en el mapa o llamá al 107.
-              </p>
-            )}
-
-            {solicitud.centro_direccion && (
-              <div className="destination-address-chip">
-                <span><MapPin size={14} /> Dirección:</span>
-                <strong>{solicitud.centro_direccion}</strong>
-              </div>
-            )}
+        <section className={`ui-card sg__estado sg__estado--${vista.tono || 'alert'} no-print`}>
+          <span className="sg__icono" aria-hidden="true">
+            <vista.Icon size={30} weight={vista.tono === 'ok' ? 'fill' : 'regular'} />
+          </span>
+          <div className="ui-grow">
+            <p className="sg__etiqueta">{vista.etiqueta}</p>
+            <h1 className="sg__titulo">{vista.titulo}</h1>
+            <p className="sg__centro">{solicitud.centro_nombre || 'Centro de salud'}</p>
+            <p className="sg__meta">
+              Aviso N.º <span className="ui-mono">{solicitud.id}</span>
+              {solicitud.creado_en && <>, enviado a las <span className="ui-mono">{hora(solicitud.creado_en)}</span></>}
+            </p>
           </div>
+        </section>
 
-          {/* ── Indicador de Polling en vivo ── */}
-          {!esAtendido && !esCancelado && (
-            <div className="live-heartbeat-box">
-              <span className="pulse-green-dot" aria-hidden="true" />
-              <span>El estado se actualiza cada 10 segundos</span>
-            </div>
-          )}
-
-          {/* ── Banner de Conversión de Invitado a Registrado (Épica 4 issue #30) ── */}
-          {!solicitud.usuario_id && (
-            <div
-              className="guest-conversion-banner"
-              style={{
-                background: 'var(--surface)',
-                border: '1px solid var(--line)',
-                borderRadius: '10px',
-                padding: '1.25rem',
-                margin: '1.25rem 0',
-                textAlign: 'center',
-              }}
-            >
-              <ClockCounterClockwise size={26} color="var(--ink-2)" style={{ display: 'block', margin: '0 auto 0.35rem' }} />
-              <h4 style={{ color: 'var(--ink)', fontWeight: 650, fontSize: '1.02rem', margin: '0 0 0.35rem' }}>
-                ¿Querés guardar esta atención en tu ficha clínica?
-              </h4>
-              <p style={{ color: 'var(--ink-3)', fontSize: '0.86rem', lineHeight: 1.45, margin: '0 0 1rem' }}>
-                Ingresá con tu cuenta y esta atención queda en tu historial, con el diagnóstico y las indicaciones.
-              </p>
-              <div style={{ display: 'flex', justifyContent: 'center' }}>
-                <Link
-                  to="/ingreso"
-                  className="btn btn--hero-primary"
-                  style={{ fontSize: '0.88rem', padding: '0.65rem 1.25rem', textDecoration: 'none' }}
+        {!esCancelado && (
+          <ol className="sg__pasos clinical-stepper no-print" aria-label="Progreso de atención de emergencia">
+            {PASOS.map((paso, i) => {
+              // Atendido es el final del recorrido: los 4 pasos quedan completos
+              const completado = esAtendido || vista.paso > i
+              const activo = !esAtendido && vista.paso === i
+              return (
+                <li
+                  key={paso.label}
+                  className={`sg__paso stepper-node${completado ? ' stepper-node--completed' : ''}${activo ? ' stepper-node--active' : ''}`}
+                  aria-current={activo ? 'step' : undefined}
                 >
-                  <LockSimple size={16} />
-                  <span>Guardar en mi historial</span>
-                </Link>
-              </div>
-            </div>
+                  <span className="sg__burbuja">
+                    {completado ? <Check size={16} weight="bold" /> : <paso.Icon size={18} />}
+                  </span>
+                  <span className="sg__paso-texto">{paso.label}</span>
+                </li>
+              )
+            })}
+          </ol>
+        )}
+
+        <section className="ui-card sg__guia no-print">
+          <h2 className="ui-h2">
+            <ClipboardText size={18} aria-hidden="true" />
+            {esAtendido || esCancelado ? 'Resumen' : 'Qué hacer ahora'}
+          </h2>
+          <p>{vista.texto}</p>
+
+          {(solicitud.medico_nombre || solicitud.centro_direccion) && (
+            <dl className="sg__kv">
+              {solicitud.medico_nombre && (
+                <div>
+                  <dt>Te atiende</dt>
+                  <dd>
+                    {solicitud.medico_nombre}
+                    {solicitud.especialidad_nombre ? `, ${solicitud.especialidad_nombre}` : ''}
+                  </dd>
+                </div>
+              )}
+              {solicitud.centro_direccion && (
+                <div>
+                  <dt>Dirección</dt>
+                  <dd>
+                    <MapPin size={14} aria-hidden="true" /> {solicitud.centro_direccion}
+                  </dd>
+                </div>
+              )}
+            </dl>
           )}
 
-          {/* ── Botones de Acción Inmediata ── */}
-          <div className="tracking-actions-stack">
-            {solicitud.centro_telefono && !esAtendido && (
-              <a
-                href={`tel:${solicitud.centro_telefono}`}
-                className="btn btn--action-phone"
-                title={`Llamar al centro médico: ${solicitud.centro_telefono}`}
-              >
-                <Phone size={18} />
-                <span>Llamar al centro ({solicitud.centro_telefono})</span>
-              </a>
-            )}
+          {enCurso && !sinConexion && (
+            <p className="sg__vivo">
+              <span className="ui-dot ui-dot--ok sg__latido" aria-hidden="true" />
+              El estado se actualiza solo cada 10 segundos
+            </p>
+          )}
+        </section>
 
-            <Link to="/mapa" className="btn btn--hero-secondary">
-              <MapTrifold size={18} />
-              <span>Ver otros centros</span>
-            </Link>
+        {esAtendido && (
+          <section className="ui-card sg__hoja">
+            <HojaAtencion atencion={solicitud} />
+          </section>
+        )}
 
-            {(estado === ESTADOS.PENDIENTE || estado === ESTADOS.ACEPTADO) && (
-              <button
-                type="button"
-                className="btn-cancel-link"
-                onClick={() => setMostrarConfirmacionCancelar(true)}
-                disabled={cancelando}
-              >
-                {cancelando ? 'Cancelando...' : 'Cancelar aviso de guardia'}
-              </button>
-            )}
-          </div>
-        </article>
+        {!solicitud.usuario_id && !solicitud.esOffline && (
+          <section className="ui-card sg__cuenta no-print">
+            <UserCirclePlus size={26} aria-hidden="true" />
+            <div className="ui-grow">
+              <h2 className="ui-h2">Guardá esta atención en tu historial</h2>
+              <p>Ingresá con tu cuenta y queda registrada con el diagnóstico y las indicaciones.</p>
+            </div>
+            <Link to="/ingreso" className="ui-btn">Ingresar con mi cuenta</Link>
+          </section>
+        )}
+
+        <div className="sg__acciones no-print">
+          {esAtendido && (
+            <button type="button" className="ui-btn ui-btn--dark ui-btn--lg" onClick={() => window.print()}>
+              <Printer size={18} aria-hidden="true" />
+              Imprimir constancia
+            </button>
+          )}
+          {solicitud.centro_telefono && !esAtendido && (
+            <a href={`tel:${solicitud.centro_telefono}`} className="ui-btn ui-btn--lg">
+              <Phone size={18} aria-hidden="true" />
+              Llamar al centro
+            </a>
+          )}
+          <Link to="/mapa" className="ui-btn ui-btn--lg">
+            <MapTrifold size={18} aria-hidden="true" />
+            Ver otros centros
+          </Link>
+        </div>
+
+        {puedeCancelar && (
+          <p className="sg__cancelar no-print">
+            <button type="button" className="ui-linkbtn ui-linkbtn--danger" onClick={() => setConfirmando(true)}>
+              Cancelar el aviso
+            </button>
+          </p>
+        )}
       </main>
 
-      {/* Modal de Confirmación de Cancelación */}
-      {mostrarConfirmacionCancelar && (
-        <div
-          className="emergency-modal-backdrop"
-          onClick={() => setMostrarConfirmacionCancelar(false)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="cancel-confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3>¿Querés cancelar este aviso de guardia?</h3>
-            <p>Si cancelás, el centro deja de esperarte.</p>
-            <div className="cancel-dialog-actions">
-              <button
-                type="button"
-                className="btn btn--hero-secondary btn--sm"
-                onClick={() => setMostrarConfirmacionCancelar(false)}
-              >
-                Mantener activo
-              </button>
-              <button
-                type="button"
-                className="btn btn--hero-primary btn--sm"
-                onClick={handleCancelar}
-                disabled={cancelando}
-              >
-                Sí, cancelar aviso
-              </button>
+      {confirmando && (
+        <div className="ui-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && !cancelando && setConfirmando(false)}>
+          <div className="ui-dialog ui-dialog--sm" role="alertdialog" aria-modal="true" aria-labelledby="cancelar-titulo">
+            <div className="ui-dialog__head">
+              <h2 id="cancelar-titulo" className="ui-dialog__title">¿Cancelar el aviso?</h2>
+            </div>
+            <div className="ui-dialog__body">
+              <p className="ui-confirm__text">El centro deja de esperarte. Si después necesitás atención, vas a tener que avisar de nuevo.</p>
+              {errorCancelar && (
+                <div className="ui-alert" role="alert" style={{ margin: '12px 0 0' }}>
+                  <span>{errorCancelar}</span>
+                </div>
+              )}
+              <div className="ui-dialog__foot" style={{ marginTop: 20 }}>
+                <button type="button" className="ui-btn ui-btn--quiet" onClick={() => setConfirmando(false)} disabled={cancelando}>
+                  Mantener el aviso
+                </button>
+                <button type="button" className="ui-btn ui-btn--primary" onClick={cancelar} disabled={cancelando}>
+                  {cancelando && <span className="ui-spinner" aria-hidden="true" />}
+                  Sí, cancelar
+                </button>
+              </div>
             </div>
           </div>
         </div>

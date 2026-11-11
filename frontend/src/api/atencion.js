@@ -1,15 +1,17 @@
 /**
- * api/atencion.js - Capa de comunicación para Solicitudes de Atención de Emergencia.
+ * api/atencion.js - Solicitudes de atención de emergencia.
  *
- * Cubre:
- *   - Crear solicitud (aviso o solicitud urgente): POST /api/v1/atencion/solicitudes/
- *   - Obtener estado de solicitud: GET /api/v1/atencion/solicitudes/{id}/
- *   - Cancelar o actualizar estado: PATCH /api/v1/atencion/solicitudes/{id}/
+ * Todas las llamadas pasan por apiFetch (api/cliente.js): renueva el token
+ * vencido y traduce los errores del backend ({error: {codigo, mensaje}}) a
+ * un mensaje legible.
+ *
+ *   - Paciente: crear, consultar y cancelar su solicitud; historial.
+ *   - Centro:   bandeja de solicitudes y derivación.
+ *   - Médico:   cola, disponibilidad, ficha clínica y cierre.
  */
 
-import { getAuthHeaders } from './auth.js'
+import { apiFetch } from './cliente.js'
 
-const API_BASE = '/api/v1'
 export const KEY_SOLICITUD_ID = 'emergenciaya_solicitud_id'
 export const KEY_ULTIMA_SOLICITUD = 'emergenciaya_ultima_solicitud'
 const PREFIJO_CODIGO = 'emergenciaya_codigo_'
@@ -23,7 +25,7 @@ function guardarCodigo(id, codigo) {
   try {
     localStorage.setItem(PREFIJO_CODIGO + id, codigo)
   } catch {
-    // Ignorar fallos de quota
+    // Sin espacio en el almacenamiento: el seguimiento sigue con el JWT
   }
 }
 
@@ -36,153 +38,92 @@ function headersSeguimiento(id) {
   }
 }
 
+function recordarSolicitud(data) {
+  try {
+    sessionStorage.setItem(KEY_SOLICITUD_ID, String(data.id))
+    sessionStorage.setItem(KEY_ULTIMA_SOLICITUD, JSON.stringify(data))
+  } catch {
+    // Ignorar fallos de quota
+  }
+}
+
+/** True si la solicitud sólo existe en este dispositivo (se creó sin red). */
+export function esSolicitudLocal(id) {
+  return String(id).startsWith('local_')
+}
+
 /**
- * Envía una nueva solicitud de atención urgente o aviso de camino.
+ * Crea un aviso ("voy en camino") o una solicitud de atención.
  *
- * @param {Object} payload
- * @param {number} payload.centro_id - ID del centro de emergencia
- * @param {'aviso'|'solicitud'} payload.modo - Modo de atención
- * @param {string} [payload.motivo] - Motivo breve de consulta (opcional, max 200 chars)
- * @param {string} [payload.nombre_invitado] - Nombre del usuario invitado
- * @param {string} [payload.telefono_invitado] - Teléfono de contacto
- * @param {number} [payload.lat_usuario] - Latitud del usuario
- * @param {number} [payload.lon_usuario] - Longitud del usuario
- * @returns {Promise<Object>} Datos de la solicitud creada
+ * Si el servidor rechaza los datos, el error llega a la pantalla. Sólo cuando
+ * no hay red se guarda un aviso local, para no dejar a la persona sin
+ * respuesta en una urgencia; esa copia se marca con `esOffline`.
+ *
+ * @param {{centro_id: number, modo: 'aviso'|'solicitud', motivo?: string,
+ *   nombre_invitado?: string, telefono_invitado?: string,
+ *   lat_usuario?: number, lon_usuario?: number}} payload
  */
 export async function crearSolicitud(payload) {
   try {
-    const res = await fetch(`${API_BASE}/atencion/solicitudes/`, {
+    const { codigo_seguimiento: codigo, ...data } = await apiFetch('/atencion/solicitudes/', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        ...getAuthHeaders(),
-      },
-      body: JSON.stringify(payload),
+      body: payload,
     })
-
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}))
-      let msg = errorData.error || errorData.detail
-      if (!msg && typeof errorData === 'object') {
-        const keys = Object.keys(errorData)
-        if (keys.length > 0) {
-          msg = `${keys[0]}: ${Array.isArray(errorData[keys[0]]) ? errorData[keys[0]].join(', ') : errorData[keys[0]]}`
-        }
-      }
-      throw new Error(msg || `Error ${res.status} al crear la solicitud de atención.`)
-    }
-
-    const { codigo_seguimiento: codigo, ...data } = await res.json()
     guardarCodigo(data.id, codigo)
-
-    // Guardar en sessionStorage para persistencia ante recarga de pantalla (criterio AE3-10)
-    try {
-      sessionStorage.setItem(KEY_SOLICITUD_ID, String(data.id))
-      sessionStorage.setItem(KEY_ULTIMA_SOLICITUD, JSON.stringify(data))
-    } catch {
-      // Ignorar fallos de quota
-    }
-
+    recordarSolicitud(data)
     return data
   } catch (err) {
-    // Si la llamada falló por error de red / offline, crear registro de guardia local
-    const offlineId = 'local_' + Date.now()
-    const offlineData = {
-      id: offlineId,
-      centro: payload.centro_id,
+    if (err.codigo !== 'SIN_CONEXION') throw err
+    const local = {
+      id: 'local_' + Date.now(),
+      centro_id: payload.centro_id,
       modo: payload.modo,
       motivo: payload.motivo || '',
+      nombre_invitado: payload.nombre_invitado || '',
       estado: 'pendiente',
       creado_en: new Date().toISOString(),
       esOffline: true,
-      mensaje_offline: 'Aviso guardado localmente en tu dispositivo para la guardia.',
     }
-    try {
-      sessionStorage.setItem(KEY_SOLICITUD_ID, String(offlineId))
-      sessionStorage.setItem(KEY_ULTIMA_SOLICITUD, JSON.stringify(offlineData))
-    } catch {
-      // Ignorar fallos de quota
-    }
-    return offlineData
+    recordarSolicitud(local)
+    return local
   }
 }
 
 /**
- * Obtiene el estado actual de una solicitud (usado para el polling en seguimiento).
- *
- * @param {number|string} id - ID de la solicitud
- * @returns {Promise<Object>}
+ * Estado actual de una solicitud (lo usa el seguimiento, cada 10 s).
+ * Sin red devuelve la última copia conocida marcada con `_sinConexion`.
  */
 export async function obtenerSolicitud(id) {
+  const guardada = obtenerUltimaSolicitudGuardada()
+  const esLaGuardada = guardada && String(guardada.id) === String(id)
+
+  if (esSolicitudLocal(id)) {
+    if (esLaGuardada) return { ...guardada, _sinConexion: true }
+    throw new Error('Este aviso se guardó sin conexión y ya no está en el dispositivo.')
+  }
+
   try {
-    const res = await fetch(`${API_BASE}/atencion/solicitudes/${id}/`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        ...getAuthHeaders(),
-        ...headersSeguimiento(id),
-      },
-    })
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.error || `Error ${res.status} al obtener estado de la solicitud.`)
-    }
-
-    const data = await res.json()
-    // Actualizar cache local
-    try {
-      sessionStorage.setItem(KEY_ULTIMA_SOLICITUD, JSON.stringify(data))
-    } catch {
-      // Ignorar fallos
-    }
+    const data = await apiFetch(`/atencion/solicitudes/${id}/`, { headers: headersSeguimiento(id) })
+    if (esLaGuardada || !guardada) recordarSolicitud(data)
     return data
-  } catch (error) {
-    // Si la red falla durante polling, devolver el último estado conocido si coincide el ID
-    const cached = obtenerUltimaSolicitudGuardada()
-    if (cached && String(cached.id) === String(id)) {
-      return { ...cached, _esCacheOffline: true }
-    }
-    throw error
+  } catch (err) {
+    if (err.codigo === 'SIN_CONEXION' && esLaGuardada) return { ...guardada, _sinConexion: true }
+    throw err
   }
 }
 
-/**
- * Cancela una solicitud activa.
- *
- * @param {number|string} id - ID de la solicitud
- * @returns {Promise<Object>}
- */
+/** Cancela una solicitud activa (sólo su dueño o el centro). */
 export async function cancelarSolicitud(id) {
-  const res = await fetch(`${API_BASE}/atencion/solicitudes/${id}/`, {
+  const data = await apiFetch(`/atencion/solicitudes/${id}/`, {
     method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      ...getAuthHeaders(),
-      ...headersSeguimiento(id),
-    },
-    body: JSON.stringify({ estado: 'cancelado' }),
+    body: { estado: 'cancelado' },
+    headers: headersSeguimiento(id),
   })
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || `Error ${res.status} al cancelar la solicitud.`)
-  }
-
-  const data = await res.json()
-  try {
-    sessionStorage.setItem(KEY_ULTIMA_SOLICITUD, JSON.stringify(data))
-  } catch {
-    // Ignorar fallos
-  }
+  recordarSolicitud(data)
   return data
 }
 
-/**
- * Devuelve la última solicitud guardada en sessionStorage si existe.
- */
+/** Última solicitud guardada en la sesión del navegador, si existe. */
 export function obtenerUltimaSolicitudGuardada() {
   try {
     const raw = sessionStorage.getItem(KEY_ULTIMA_SOLICITUD)
@@ -192,218 +133,69 @@ export function obtenerUltimaSolicitudGuardada() {
   }
 }
 
-/**
- * Lista las solicitudes de atención de un centro de salud (para el operador).
- */
-export async function listarSolicitudesCentro(centroId, { estado, modo } = {}) {
-  const params = new URLSearchParams()
-  if (estado) params.append('estado', estado)
-  if (modo) params.append('modo', modo)
-
-  const url = `${API_BASE}/centros/${centroId}/solicitudes/?${params.toString()}`
-  const res = await fetch(url, {
-    headers: {
-      'Accept': 'application/json',
-      ...getAuthHeaders(),
-    },
-  })
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || `Error ${res.status} al listar solicitudes del centro.`)
+/** Id de la solicitud en seguimiento en este navegador, o null. */
+export function obtenerSolicitudActivaId() {
+  try {
+    return sessionStorage.getItem(KEY_SOLICITUD_ID) || null
+  } catch {
+    return null
   }
-
-  return await res.json()
 }
 
-/**
- * Deriva una solicitud a un médico especialista (Triage del operador).
- */
-export async function derivarSolicitud(solicitudId, { especialidad_id, medico_id, prioridad = 'alta', observaciones = '' }) {
-  const res = await fetch(`${API_BASE}/atencion/solicitudes/${solicitudId}/derivar/`, {
+// ── Centro ──────────────────────────────────────────────────────────────────
+
+/** Solicitudes de un centro (bandeja del operador y tablero). */
+export const listarSolicitudesCentro = (centroId, { estado, modo } = {}) =>
+  apiFetch(`/centros/${centroId}/solicitudes/`, { query: { estado, modo } })
+
+/** Cambia el estado de una solicitud desde el centro (aceptar, en camino, cancelar). */
+export const cambiarEstadoSolicitud = (solicitudId, estado) =>
+  apiFetch(`/atencion/solicitudes/${solicitudId}/`, { method: 'PATCH', body: { estado } })
+
+/** Deriva una solicitud a un médico (triage del operador). */
+export const derivarSolicitud = (solicitudId, { especialidad_id, medico_id, prioridad = 'alta', observaciones = '' }) =>
+  apiFetch(`/atencion/solicitudes/${solicitudId}/derivar/`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      ...getAuthHeaders(),
-    },
-    body: JSON.stringify({
-      especialidad_id,
-      medico_id,
-      prioridad,
-      observaciones,
-    }),
+    body: { especialidad_id, medico_id, prioridad, observaciones },
   })
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || err.detail || `Error ${res.status} al derivar la solicitud.`)
-  }
+/** Especialidades activas de un centro (dato público). */
+export const listarEspecialidadesCentro = (centroId) => apiFetch(`/centros/${centroId}/especialidades/`)
 
-  return await res.json()
-}
-
-/**
- * Inicia la atención médica de una solicitud derivada (Médico especialista).
- */
-export async function iniciarAtencion(solicitudId) {
-  const res = await fetch(`${API_BASE}/atencion/solicitudes/${solicitudId}/iniciar-atencion/`, {
-    method: 'POST',
-    headers: {
-      'Accept': 'application/json',
-      ...getAuthHeaders(),
-    },
-  })
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || err.detail || `Error ${res.status} al iniciar la atención.`)
-  }
-
-  return await res.json()
-}
-
-/**
- * Finaliza la atención médica guardando diagnóstico e indicaciones.
- */
-export async function completarAtencion(solicitudId, { diagnostico, indicaciones = '' }) {
-  const res = await fetch(`${API_BASE}/atencion/solicitudes/${solicitudId}/completar/`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      ...getAuthHeaders(),
-    },
-    body: JSON.stringify({ diagnostico, indicaciones }),
-  })
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || err.detail || `Error ${res.status} al finalizar la atención.`)
-  }
-
-  return await res.json()
-}
-
-/**
- * Obtiene la ficha clínica del paciente y detalles del episodio para el médico.
- */
-export async function obtenerFichaClinica(solicitudId) {
-  const res = await fetch(`${API_BASE}/atencion/solicitudes/${solicitudId}/ficha-clinica/`, {
-    headers: {
-      'Accept': 'application/json',
-      ...getAuthHeaders(),
-    },
-  })
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || `Error ${res.status} al consultar la ficha clínica.`)
-  }
-
-  return await res.json()
-}
-
-/**
- * Obtiene el historial clínico del paciente registrado autenticado.
- */
-export async function obtenerMiHistorial() {
-  const res = await fetch(`${API_BASE}/pacientes/mi-historial/`, {
-    headers: {
-      'Accept': 'application/json',
-      ...getAuthHeaders(),
-    },
-  })
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || `Error ${res.status} al consultar tu historial médico.`)
-  }
-
-  return await res.json()
-}
-
-/**
- * Lista las especialidades activas de un centro.
- */
-export async function listarEspecialidadesCentro(centroId) {
-  const res = await fetch(`${API_BASE}/centros/${centroId}/especialidades/`, {
-    headers: {
-      'Accept': 'application/json',
-      ...getAuthHeaders(),
-    },
-  })
-  if (!res.ok) return []
-  return await res.json()
-}
-
-/**
- * Lista los especialistas disponibles de un centro (en tiempo real con Redis).
- */
+/** Médicos de un centro con su disponibilidad en tiempo real. */
 export async function listarEspecialistasDisponiblesCentro(centroId, especialidadId = null) {
-  const query = especialidadId ? `?especialidad_id=${especialidadId}` : ''
-  const res = await fetch(`${API_BASE}/centros/${centroId}/especialistas-disponibles/${query}`, {
-    headers: {
-      'Accept': 'application/json',
-      ...getAuthHeaders(),
-    },
+  const data = await apiFetch(`/centros/${centroId}/especialistas-disponibles/`, {
+    query: { especialidad_id: especialidadId },
   })
-  if (!res.ok) return []
-  const data = await res.json()
-  return data.resultados || []
+  return data?.resultados || []
 }
 
-/**
- * Consulta la disponibilidad actual del médico logueado.
- */
-export async function obtenerMiDisponibilidad() {
-  const res = await fetch(`${API_BASE}/medicos/mi-disponibilidad/`, {
-    headers: {
-      'Accept': 'application/json',
-      ...getAuthHeaders(),
-    },
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || `Error ${res.status} al consultar disponibilidad.`)
-  }
-  return await res.json()
-}
+// ── Médico ──────────────────────────────────────────────────────────────────
 
-/**
- * Actualiza el estado de disponibilidad del médico en Redis.
- */
-export async function actualizarMiDisponibilidad(estado) {
-  const res = await fetch(`${API_BASE}/medicos/mi-disponibilidad/`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      ...getAuthHeaders(),
-    },
-    body: JSON.stringify({ estado }),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || `Error ${res.status} al actualizar disponibilidad.`)
-  }
-  return await res.json()
-}
+export const iniciarAtencion = (solicitudId) =>
+  apiFetch(`/atencion/solicitudes/${solicitudId}/iniciar-atencion/`, { method: 'POST' })
 
-/**
- * Obtiene la cola de pacientes derivados al médico logueado y resumen de guardia.
- */
-export async function obtenerColaMedico(estado = 'derivado,en_atencion') {
-  const query = estado ? `?estado=${estado}` : ''
-  const res = await fetch(`${API_BASE}/medicos/mis-solicitudes/${query}`, {
-    headers: {
-      'Accept': 'application/json',
-      ...getAuthHeaders(),
-    },
+export const completarAtencion = (solicitudId, { diagnostico, indicaciones = '' }) =>
+  apiFetch(`/atencion/solicitudes/${solicitudId}/completar/`, {
+    method: 'POST',
+    body: { diagnostico, indicaciones },
   })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || `Error ${res.status} al consultar cola de pacientes.`)
-  }
-  return await res.json()
-}
+
+export const obtenerFichaClinica = (solicitudId) => apiFetch(`/atencion/solicitudes/${solicitudId}/ficha-clinica/`)
+
+export const obtenerMiDisponibilidad = () => apiFetch('/medicos/mi-disponibilidad/')
+
+export const actualizarMiDisponibilidad = (estado) =>
+  apiFetch('/medicos/mi-disponibilidad/', { method: 'PATCH', body: { estado } })
+
+export const obtenerColaMedico = (estado = 'derivado,en_atencion') =>
+  apiFetch('/medicos/mis-solicitudes/', { query: { estado } })
+
+// ── Paciente ────────────────────────────────────────────────────────────────
+
+/** Historial del paciente autenticado: todas sus solicitudes, la más nueva primero. */
+export const obtenerMiHistorial = () => apiFetch('/pacientes/mi-historial/')
+
+/** Detalle completo de una consulta propia (diagnóstico, triage, médico, horarios). */
+export const obtenerMiConsulta = (id) =>
+  apiFetch(`/atencion/solicitudes/${id}/`, { headers: headersSeguimiento(id) })

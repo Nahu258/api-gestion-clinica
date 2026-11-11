@@ -92,8 +92,9 @@ function armarUrl(path, query) {
  * @param {object} [opciones.body] - Se envía como JSON.
  * @param {object} [opciones.query] - Query string; se omiten valores vacíos.
  * @param {AbortSignal} [opciones.signal]
+ * @param {object} [opciones.headers] - Headers extra (ej. X-Codigo-Seguimiento).
  */
-export async function apiFetch(path, { method = 'GET', body, query, signal } = {}, reintento = true) {
+export async function apiFetch(path, { method = 'GET', body, query, signal, headers } = {}, reintento = true) {
   let res
   try {
     res = await fetch(armarUrl(path, query), {
@@ -103,6 +104,7 @@ export async function apiFetch(path, { method = 'GET', body, query, signal } = {
         Accept: 'application/json',
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         ...getAuthHeaders(),
+        ...(headers || {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })
@@ -113,7 +115,7 @@ export async function apiFetch(path, { method = 'GET', body, query, signal } = {
 
   if (res.status === 401 && reintento) {
     const nuevo = await refrescarToken()
-    if (nuevo) return apiFetch(path, { method, body, query, signal }, false)
+    if (nuevo) return apiFetch(path, { method, body, query, signal, headers }, false)
     cerrarSesion()
     throw new ApiError({ status: 401, codigo: 'NO_AUTENTICADO', mensaje: 'Tu sesión venció. Volvé a ingresar.' })
   }

@@ -14,6 +14,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowClockwise,
+  ChartLineUp,
   CheckCircle,
   Clock,
   MapPin,
@@ -32,6 +33,7 @@ import {
   listarEspecialidadesCentro,
   listarEspecialistasDisponiblesCentro,
   derivarSolicitud,
+  cambiarEstadoSolicitud,
 } from '../api/atencion.js'
 import { obtenerCentroPorId } from '../api/centros.js'
 import { iniciales } from '../utils/roles.js'
@@ -133,7 +135,7 @@ export default function PanelCentro() {
     try {
       const [sols, docs] = await Promise.all([
         listarSolicitudesCentro(idCentro),
-        listarEspecialistasDisponiblesCentro(idCentro),
+        listarEspecialistasDisponiblesCentro(idCentro).catch(() => []),
       ])
       setSolicitudes(Array.isArray(sols) ? sols : [])
       setEquipo(Array.isArray(docs) ? docs : [])
@@ -203,7 +205,12 @@ export default function PanelCentro() {
   // ── Derivación ────────────────────────────────────────────────────────────
 
   const cargarDoctores = async (espId) => {
-    const docs = await listarEspecialistasDisponiblesCentro(idCentro, espId)
+    let docs = []
+    try {
+      docs = await listarEspecialistasDisponiblesCentro(idCentro, espId)
+    } catch {
+      setErrorModal('No se pudieron cargar los médicos de la especialidad.')
+    }
     setDoctores(docs)
     const libre = docs.find((d) => d.disponibilidad === 'DISPONIBLE') || docs[0]
     setDoctorSel(libre ? String(libre.id) : '')
@@ -251,6 +258,22 @@ export default function PanelCentro() {
       setErrorModal(err.message || 'No se pudo derivar la solicitud.')
     } finally {
       setDerivando(false)
+    }
+  }
+
+  const avisar = (texto) => {
+    setToast(texto)
+    setTimeout(() => setToast(null), 4000)
+  }
+
+  // El centro confirma que recibió el aviso: el paciente lo ve en su seguimiento
+  const aceptar = async (solicitud) => {
+    try {
+      await cambiarEstadoSolicitud(solicitud.id, 'aceptado')
+      avisar(`Aviso de ${nombrePaciente(solicitud)} confirmado.`)
+      cargar(true)
+    } catch (err) {
+      setError(err.message || 'No se pudo confirmar el aviso.')
     }
   }
 
@@ -310,6 +333,10 @@ export default function PanelCentro() {
               <ArrowClockwise size={16} />
               Actualizar
             </button>
+            <Link to={`/panel-centro/gestion${esAdminGlobal ? `?centro=${idCentro}` : ''}`} className="ui-btn ui-btn--dark">
+              <ChartLineUp size={16} />
+              Tablero
+            </Link>
           </div>
         </div>
 
@@ -401,7 +428,7 @@ export default function PanelCentro() {
               ) : (
                 <div className="ui-rows">
                   {bandeja.map((s) => (
-                    <FilaSolicitud key={s.id} s={s} onDerivar={() => abrirDerivacion(s)} />
+                    <FilaSolicitud key={s.id} s={s} onDerivar={() => abrirDerivacion(s)} onAceptar={() => aceptar(s)} />
                   ))}
                 </div>
               )}
@@ -641,7 +668,7 @@ export default function PanelCentro() {
   )
 }
 
-function FilaSolicitud({ s, onDerivar }) {
+function FilaSolicitud({ s, onDerivar, onAceptar }) {
   const puedeDerivar = EN_ESPERA.includes(s.estado)
   return (
     <article className={`ui-row ui-row--prio ui-row--prio-${s.prioridad}`}>
@@ -671,6 +698,11 @@ function FilaSolicitud({ s, onDerivar }) {
       </div>
       {puedeDerivar && (
         <div className="ui-row__aside">
+          {s.estado === 'pendiente' && (
+            <button type="button" className="ui-btn ui-btn--sm" onClick={onAceptar}>
+              Confirmar aviso
+            </button>
+          )}
           <button type="button" className="ui-btn ui-btn--sm ui-btn--dark" onClick={onDerivar}>
             Derivar
           </button>

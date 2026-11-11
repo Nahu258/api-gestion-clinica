@@ -1,0 +1,47 @@
+/*
+ * print.css - Salida en papel (y "Guardar como PDF").
+ *
+ * En pantalla, .print-only no se ve. Al imprimir se ocultan la barra, los
+ * botones y todo lo marcado con .no-print, y queda sólo el documento.
+ */
+
+.print-only { display: none; }
+
+@media print {
+  @page { size: A4; margin: 16mm 14mm; }
+
+  html, body { background: #ffffff !important; }
+  body { font-size: 11pt; }
+
+  .ui-topbar,
+  .ui-toasts,
+  .ui-backdrop,
+  .ui-backlink,
+  .ui-consola__side,
+  .no-print { display: none !important; }
+
+  .print-only { display: block !important; }
+
+  .ui-shell { min-height: 0; background: #ffffff; }
+  .ui-page { max-width: none; padding: 0; }
+
+  .ui-card { border: none; border-radius: 0; background: none; }
+  .sg__hoja, .cp__hoja { padding: 0; }
+
+  .hoja { break-inside: avoid; page-break-inside: avoid; }
+  .hoja__datos, .hoja__bloque--dx { background: none; border: 1px solid #c8c8c8; }
+  .hoja__bloque--dx { border-left: 3px solid #000000; }
+  .hoja__bloque p { max-width: none; }
+
+  .ui-brand__mark { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  /* Historial completo: una atención debajo de otra */
+  .doc__portada { margin-bottom: 8mm; padding-bottom: 5mm; border-bottom: 2px solid #000000; }
+  .doc__portada h1 { font-size: 20pt; letter-spacing: -0.02em; }
+  .doc__portada p { margin-top: 2mm; color: #333333; }
+  .doc .hoja { margin-bottom: 10mm; padding-bottom: 6mm; border-bottom: 1px solid #c8c8c8; }
+  .doc .hoja:last-child { border-bottom: none; }
+  .doc .hoja__pie { display: none; }
+
+  a { color: inherit; text-decoration: none; }
+}

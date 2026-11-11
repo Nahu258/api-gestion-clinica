@@ -10,6 +10,7 @@ import PanelCentro from './pages/PanelCentro.jsx'
 import PortalMedico from './pages/PortalMedico.jsx'
 import ConsultaMedica from './pages/ConsultaMedica.jsx'
 import HistorialPaciente from './pages/HistorialPaciente.jsx'
+import ConsultaPaciente from './pages/ConsultaPaciente.jsx'
 import { ToastProvider } from './components/ui/Toast.jsx'
 import AdminLayout from './pages/admin/AdminLayout.jsx'
 import GestionLayout from './pages/gestion/GestionLayout.jsx'
@@ -79,6 +80,7 @@ export default function App() {
           {/* Rutas protegidas para Pacientes Registrados */}
           <Route element={<RoleGuard allowedRoles={['PACIENTE', 'ADMIN']} />}>
             <Route path="/mi-historial" element={<HistorialPaciente />} />
+            <Route path="/mi-historial/:id" element={<ConsultaPaciente />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

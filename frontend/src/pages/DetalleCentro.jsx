@@ -1,459 +1,373 @@
 /**
- * DetalleCentro.jsx - Ficha Médica y Solicitud de Atención Inmediata.
+ * DetalleCentro.jsx - Ficha de un centro y aviso "voy en camino".
  *
- * Épica 3 (AE4-09, issue #18) rediseñada para situaciones críticas de salud:
- *   - Ficha del centro con badge de guardia 24h, distancia y tiempo estimado de viaje.
- *   - Enlace directo a navegación GPS (Google Maps / Waze).
- *   - Botón de llamada directa de 1 toque con el número del hospital.
- *   - Botón principal "Voy en camino - Avisar a la guardia" visible sin scroll.
- *   - Modal de solicitud rápida con chips de síntomas frecuentes (1 toque para emergencias).
- *   - Validación clara, prevención de doble envío y redirección a seguimiento.
+ * - Datos del centro: tipo, horario, distancia, tiempo estimado, dirección,
+ *   teléfono y especialidades de guardia.
+ * - Acción principal visible sin scroll: avisar a la guardia que la persona va.
+ * - Acciones de apoyo: llamar al centro y abrir el recorrido en Google Maps.
+ * - El aviso se carga en una hoja inferior (mobile) o diálogo (desktop), con
+ *   motivos frecuentes de un toque. Quien no tiene cuenta deja su nombre.
  */
 
-import { useState, useEffect } from 'react'
-import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft, Car, Clock, MapPin, NavigationArrow, Phone, Siren, WarningCircle, X } from '@phosphor-icons/react'
 
+import Navbar from '../components/Navbar.jsx'
 import { obtenerCentroPorId } from '../api/centros.js'
-import { crearSolicitud } from '../api/atencion.js'
+import { crearSolicitud, listarEspecialidadesCentro } from '../api/atencion.js'
 import { getAuthHeaders } from '../api/auth.js'
-import {
-  Ambulance,
-  ArrowLeft,
-  Buildings,
-  Car,
-  Clock,
-  FireTruck,
-  FirstAidKit,
-  Hospital,
-  MapPin,
-  NavigationArrow,
-  Phone,
-  ShieldStar,
-  Siren,
-  Warning,
-  X,
-} from '@phosphor-icons/react'
+import { minutosEnAuto, textoDistancia, tipoCentro } from '../utils/tiposCentro.js'
+import { IconoEspecialidad } from '../utils/iconosEspecialidad.jsx'
 
-const TIPOS_ICONO = {
-  hospital: Hospital,
-  clinica:  Buildings,
-  same:     Ambulance,
-  upa:      FirstAidKit,
-  bomberos: FireTruck,
-  policia:  ShieldStar,
-  otro:     MapPin,
-}
-
-const SINTOMAS_RAPIDOS = [
-  'Accidente / Traumatismo',
-  'Dificultad respiratoria',
-  'Dolor agudo en el pecho',
-  'Fiebre alta / Pediatría',
+const MOTIVOS_FRECUENTES = [
+  'Accidente o golpe',
+  'Dificultad para respirar',
+  'Dolor en el pecho',
+  'Fiebre alta',
   'Hemorragia o corte',
-  'Desmayo / Pérdida de conocimiento',
+  'Desmayo',
 ]
+
+const MAX_MOTIVO = 200
 
 export default function DetalleCentro() {
   const { id } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Datos previos pasados por la navegación
-  const centroInicial = location.state?.centro || null
   const ubicacionUsuario = location.state?.ubicacionUsuario || null
 
-  const [centro, setCentro] = useState(centroInicial)
-  const [cargando, setCargando] = useState(!centroInicial)
+  const [centro, setCentro] = useState(location.state?.centro || null)
+  const [cargando, setCargando] = useState(!location.state?.centro)
   const [errorCarga, setErrorCarga] = useState(null)
+  const [especialidades, setEspecialidades] = useState([])
 
-  // Modal de solicitud
-  const [modalAbierto, setModalAbierto] = useState(false)
-  const [nombreInvitado, setNombreInvitado] = useState('')
-  const [telefonoContacto, setTelefonoContacto] = useState('')
+  const [abierto, setAbierto] = useState(false)
+  const [nombre, setNombre] = useState('')
+  const [telefono, setTelefono] = useState('')
   const [motivo, setMotivo] = useState('')
-  const [errorValidacion, setErrorValidacion] = useState('')
-
-  // Estado de envío
+  const [errorNombre, setErrorNombre] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [errorEnvio, setErrorEnvio] = useState(null)
 
-  const headers = getAuthHeaders()
-  const esInvitado = !!headers['X-Guest-Token']
+  // Sin JWT (invitado o sin sesión) la guardia necesita un nombre para identificar a la persona
+  const sinCuenta = !getAuthHeaders().Authorization
 
-  // Cargar centro si se entra directo por URL o recarga
   useEffect(() => {
-    if (!centro && id) {
-      setCargando(true)
-      setErrorCarga(null)
-      obtenerCentroPorId(id)
-        .then((data) => {
-          setCentro(data)
-          setCargando(false)
-        })
-        .catch((err) => {
-          setErrorCarga(err.message || 'No se pudo cargar la información del centro.')
-          setCargando(false)
-        })
-    }
+    if (centro || !id) return
+    setCargando(true)
+    obtenerCentroPorId(id)
+      .then(setCentro)
+      .catch((err) => setErrorCarga(err.message || 'No se pudo cargar la información del centro.'))
+      .finally(() => setCargando(false))
   }, [centro, id])
 
-  const abrirModal = () => {
-    setErrorValidacion('')
+  useEffect(() => {
+    let activo = true
+    listarEspecialidadesCentro(id)
+      .then((lista) => activo && setEspecialidades(Array.isArray(lista) ? lista : []))
+      .catch(() => activo && setEspecialidades([]))
+    return () => {
+      activo = false
+    }
+  }, [id])
+
+  // Escape cierra el diálogo; el fondo no se desplaza mientras está abierto
+  useEffect(() => {
+    if (!abierto) return undefined
+    const previo = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const alTeclear = (e) => {
+      if (e.key === 'Escape' && !enviando) setAbierto(false)
+    }
+    document.addEventListener('keydown', alTeclear)
+    return () => {
+      document.body.style.overflow = previo
+      document.removeEventListener('keydown', alTeclear)
+    }
+  }, [abierto, enviando])
+
+  const abrir = () => {
+    setErrorNombre('')
     setErrorEnvio(null)
-    setModalAbierto(true)
+    setAbierto(true)
   }
 
-  const cerrarModal = () => {
-    if (enviando) return
-    setModalAbierto(false)
-    setErrorValidacion('')
-    setErrorEnvio(null)
+  const cerrar = () => {
+    if (!enviando) setAbierto(false)
   }
 
-  const seleccionarSintoma = (sintoma) => {
-    if (motivo) {
-      if (!motivo.includes(sintoma)) {
-        setMotivo(`${motivo}, ${sintoma}`.slice(0, 200))
-      }
+  const alternarMotivo = (texto) => {
+    if (motivo.includes(texto)) {
+      setMotivo(motivo.split(', ').filter((m) => m !== texto).join(', '))
     } else {
-      setMotivo(sintoma)
+      setMotivo((motivo ? `${motivo}, ${texto}` : texto).slice(0, MAX_MOTIVO))
     }
   }
 
-  const handleEnviarSolicitud = async (e) => {
+  const enviar = async (e) => {
     e.preventDefault()
-    setErrorValidacion('')
     setErrorEnvio(null)
 
-    if (esInvitado && !nombreInvitado.trim()) {
-      setErrorValidacion('Por favor ingresá tu nombre para que los médicos te identifiquen.')
+    if (sinCuenta && !nombre.trim()) {
+      setErrorNombre('Escribí tu nombre para que la guardia te identifique al llegar.')
       return
     }
-
-    if (motivo.length > 200) {
-      setErrorValidacion('El motivo no puede superar los 200 caracteres.')
-      return
-    }
-
+    setErrorNombre('')
     setEnviando(true)
 
-    const payload = {
-      centro_id: centro.id,
-      modo: 'aviso',
-      motivo: motivo.trim() || undefined,
-      nombre_invitado: esInvitado ? nombreInvitado.trim() : undefined,
-      telefono_invitado: telefonoContacto.trim() || undefined,
-      lat_usuario: ubicacionUsuario?.lat,
-      lon_usuario: ubicacionUsuario?.lon,
-    }
-
     try {
-      const solicitudCreada = await crearSolicitud(payload)
-      setEnviando(false)
-      setModalAbierto(false)
-      navigate(`/seguimiento/${solicitudCreada.id}`, {
-        state: { solicitud: solicitudCreada, centro },
+      const solicitud = await crearSolicitud({
+        centro_id: centro.id,
+        modo: 'aviso',
+        motivo: motivo.trim() || undefined,
+        nombre_invitado: sinCuenta ? nombre.trim() : undefined,
+        telefono_invitado: telefono.trim() || undefined,
+        lat_usuario: ubicacionUsuario?.lat,
+        lon_usuario: ubicacionUsuario?.lon,
       })
+      setAbierto(false)
+      navigate(`/seguimiento/${solicitud.id}`, { state: { solicitud, centro } })
     } catch (err) {
+      setErrorEnvio(err.message || 'No se pudo enviar el aviso. Probá de nuevo o llamá al centro.')
+    } finally {
       setEnviando(false)
-      setErrorEnvio(err.message || 'Error al procesar el aviso. Por favor reintentá.')
     }
   }
 
   if (cargando) {
     return (
-      <div className="detalle-screen-layout">
-        <header className="detalle-nav-bar">
-          <Link to="/mapa" className="detalle-back-btn">
-            <ArrowLeft size={16} /> Volver al mapa
-          </Link>
-        </header>
-        <div className="detalle-loading-box">
-          <span className="action-spinner action-spinner--red" aria-hidden="true" />
-          <p>Cargando datos del centro...</p>
-        </div>
+      <div className="ui-shell">
+        <Navbar />
+        <main className="ui-page ui-page--narrow" aria-busy="true">
+          <div className="ui-skeleton" style={{ height: 14, width: 120, marginBottom: 20 }} />
+          <div className="ui-skeleton" style={{ height: 34, width: '70%', marginBottom: 12 }} />
+          <div className="ui-skeleton" style={{ height: 16, width: '45%', marginBottom: 28 }} />
+          <div className="ui-skeleton" style={{ height: 60, marginBottom: 12 }} />
+          <div className="ui-skeleton" style={{ height: 180 }} />
+        </main>
       </div>
     )
   }
 
   if (errorCarga || !centro) {
     return (
-      <div className="detalle-screen-layout">
-        <header className="detalle-nav-bar">
-          <Link to="/mapa" className="detalle-back-btn">
-            <ArrowLeft size={16} /> Volver al mapa
-          </Link>
-        </header>
-        <div className="detalle-error-box">
-          <p><Warning size={18} /> {errorCarga || 'Centro médico no encontrado'}</p>
-          <Link to="/mapa" className="btn btn--hero-primary btn--sm">
-            Volver a la lista de centros
-          </Link>
-        </div>
+      <div className="ui-shell">
+        <Navbar />
+        <main className="ui-page ui-page--narrow">
+          <div className="ui-card">
+            <div className="ui-empty">
+              <div className="ui-empty__icon ui-empty__icon--alert"><WarningCircle size={22} /></div>
+              <p className="ui-empty__title">No encontramos este centro</p>
+              <p className="ui-empty__text">{errorCarga || 'Puede que ya no esté en la red de guardias.'}</p>
+              <Link to="/mapa" className="ui-btn ui-btn--dark" style={{ marginTop: 16 }}>Volver al mapa</Link>
+            </div>
+          </div>
+        </main>
       </div>
     )
   }
 
-  const IconoTipo = TIPOS_ICONO[centro.tipo] || MapPin
-  const minutosEstimados =
-    centro.distancia_km != null
-      ? Math.max(3, Math.round(centro.distancia_km * 2.2))
-      : null
-
-  const urlGoogleMaps = `https://www.google.com/maps/dir/?api=1&destination=${centro.latitud},${centro.longitud}`
+  const cfg = tipoCentro(centro.tipo)
+  const minutos = minutosEnAuto(centro.distancia_km)
+  const comoLlegar = `https://www.google.com/maps/dir/?api=1&destination=${centro.latitud},${centro.longitud}`
 
   return (
-    <div className="detalle-screen-layout">
-      {/* ── Topbar de navegación ── */}
-      <header className="detalle-nav-bar" role="banner">
-        <div className="detalle-nav-inner">
-          <Link to="/mapa" className="detalle-back-btn" aria-label="Volver al mapa">
-            <ArrowLeft size={16} aria-hidden="true" />
-            <span>Volver al mapa</span>
-          </Link>
-          <div className="detalle-guardia-indicator">
-            <span className="pulse-green-dot" aria-hidden="true" />
-            <span>Guardia activa en Posadas</span>
+    <div className="ui-shell">
+      <Navbar />
+
+      <main className="ui-page ui-page--narrow dc">
+        <Link to="/mapa" className="ui-backlink">
+          <ArrowLeft size={16} aria-hidden="true" />
+          Volver al mapa
+        </Link>
+
+        <header className="dc__cabecera">
+          <span className="dc__icono" style={{ '--c': cfg.color }} aria-hidden="true">
+            <cfg.Icon size={26} weight="fill" />
+          </span>
+          <div className="ui-grow">
+            <p className="dc__tipo">{centro.tipo_legible || cfg.label}</p>
+            <h1 className="dc__nombre">{centro.nombre}</h1>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* ── Contenido Principal ── */}
-      <main className="detalle-main-content">
-        <div className="detalle-content-wrapper">
-          {/* Card Principal del Centro Médico */}
-          <article className="medical-profile-card">
-            <div className="profile-badge-row">
-              <span className="profile-icon-large" aria-hidden="true">
-                <IconoTipo size={30} />
-              </span>
-              <div className="profile-badges-wrap">
-                <span className="badge badge--tipo">
-                  {centro.tipo_legible || 'Centro de Salud'}
-                </span>
-                <span className={`badge ${centro.atiende_24h ? 'badge--green' : 'badge--gray'}`}>
-                  {centro.atiende_24h ? <><Clock size={12} weight="bold" /> Abierto 24 horas</> : 'Horario limitado'}
-                </span>
-              </div>
-            </div>
+        <ul className="dc__datos">
+          <li className={centro.atiende_24h ? 'is-ok' : ''}>
+            <Clock size={18} aria-hidden="true" />
+            <span>{centro.atiende_24h ? 'Abierto 24 horas' : 'Horario reducido'}</span>
+          </li>
+          {centro.distancia_km != null && (
+            <li>
+              <MapPin size={18} aria-hidden="true" />
+              <span>A <strong className="ui-mono">{textoDistancia(centro.distancia_km)}</strong></span>
+            </li>
+          )}
+          {minutos != null && (
+            <li>
+              <Car size={18} aria-hidden="true" />
+              <span>Unos <strong className="ui-mono">{minutos} min</strong> en auto</span>
+            </li>
+          )}
+        </ul>
 
-            <h1 className="profile-title">{centro.nombre}</h1>
+        <section className="dc__acciones" aria-label="Acciones">
+          <button id="btn-voy-en-camino" type="button" className="ui-btn ui-btn--primary ui-btn--xl ui-btn--block dc__avisar" onClick={abrir}>
+            <Siren size={24} weight="fill" aria-hidden="true" />
+            <span className="dc__avisar-texto">
+              <strong>Voy en camino</strong>
+              <small>La guardia recibe tu aviso antes de que llegues</small>
+            </span>
+          </button>
 
-            {/* Métrica de distancia y tiempo */}
-            <div className="profile-metrics-strip">
-              {centro.distancia_km != null && (
-                <div className="metric-pill">
-                  <span className="metric-icon" aria-hidden="true"><MapPin size={16} /></span>
-                  <span className="metric-data">{centro.distancia_km} km de distancia</span>
-                </div>
-              )}
-              {minutosEstimados != null && (
-                <div className="metric-pill metric-pill--time">
-                  <span className="metric-icon" aria-hidden="true"><Car size={16} /></span>
-                  <span className="metric-data">~{minutosEstimados} min en vehículo</span>
-                </div>
-              )}
-            </div>
-
-            {/* Datos de contacto y ubicación */}
-            <div className="profile-details-list">
-              <div className="detail-row">
-                <span className="detail-row-icon" aria-hidden="true"><MapPin size={18} /></span>
-                <div className="detail-row-text">
-                  <strong>Dirección:</strong>
-                  <span>{centro.direccion}, {centro.ciudad || 'Posadas'}</span>
-                </div>
-              </div>
-
-              {centro.telefono && (
-                <div className="detail-row">
-                  <span className="detail-row-icon" aria-hidden="true"><Phone size={18} /></span>
-                  <div className="detail-row-text">
-                    <strong>Teléfono de guardia:</strong>
-                    <a href={`tel:${centro.telefono}`} className="profile-phone-link">
-                      {centro.telefono}
-                    </a>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Botón de cómo llegar con GPS */}
-            <a
-              href={urlGoogleMaps}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn btn--maps-direct"
-              title="Abrir indicaciones en Google Maps"
-            >
-              <NavigationArrow size={18} />
-              <span>Cómo llegar</span>
-            </a>
-          </article>
-
-          {/* ── Botones de Acción de Emergencia Inmediata ── */}
-          <section className="emergency-actions-hub" aria-label="Acciones prioritarias de guardia">
-            <button
-              id="btn-voy-en-camino"
-              type="button"
-              className="btn btn--emergency-hero"
-              onClick={abrirModal}
-            >
-              <div className="emergency-btn-inner">
-                <span className="emergency-btn-icon" aria-hidden="true"><Siren size={26} weight="fill" /></span>
-                <div className="emergency-btn-copy">
-                  <strong>Voy en camino - Avisar a la guardia</strong>
-                  <small>La guardia recibe tu aviso antes de que llegues</small>
-                </div>
-              </div>
-            </button>
-
+          <div className="dc__apoyo">
             {centro.telefono && (
-              <a href={`tel:${centro.telefono}`} className="btn btn--call-center">
-                <Phone size={18} />
-                <span>Llamar al centro ({centro.telefono})</span>
+              <a href={`tel:${centro.telefono}`} className="ui-btn ui-btn--lg">
+                <Phone size={18} aria-hidden="true" />
+                Llamar al centro
               </a>
             )}
-          </section>
-        </div>
+            <a href={comoLlegar} target="_blank" rel="noopener noreferrer" className="ui-btn ui-btn--lg">
+              <NavigationArrow size={18} aria-hidden="true" />
+              Cómo llegar
+            </a>
+          </div>
+        </section>
+
+        <section className="ui-card dc__ficha" aria-label="Datos del centro">
+          <dl className="dc__kv">
+            <div>
+              <dt>Dirección</dt>
+              <dd>{centro.ciudad && !(centro.direccion || '').includes(centro.ciudad) ? `${centro.direccion}, ${centro.ciudad}` : centro.direccion}</dd>
+            </div>
+            {centro.telefono && (
+              <div>
+                <dt>Teléfono de guardia</dt>
+                <dd><a href={`tel:${centro.telefono}`} className="ui-link-strong ui-mono">{centro.telefono}</a></dd>
+              </div>
+            )}
+          </dl>
+
+          {especialidades.length > 0 && (
+            <div className="dc__especialidades">
+              <h2 className="ui-h2">Especialidades de guardia</h2>
+              <ul className="dc__esp-lista">
+                {especialidades.map((esp) => (
+                  <li key={esp.id}>
+                    <IconoEspecialidad nombre={esp.icono} size={16} aria-hidden="true" />
+                    {esp.nombre}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+
+        <p className="dc__nota">
+          Si hay riesgo de vida, llamá al <a href="tel:107" className="ui-link-strong">107</a> antes de salir.
+        </p>
       </main>
 
-      {/* ── Modal Bottom Sheet de Solicitud Rápida ── */}
-      {modalAbierto && (
-        <div
-          className="emergency-modal-backdrop"
-          onClick={cerrarModal}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="modal-emergency-title"
-        >
-          <div className="emergency-modal-window" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-top-bar">
-              <div className="modal-header-text">
-                <h3 id="modal-emergency-title">
-                  Avisar que voy en camino
-                </h3>
-                <p className="modal-target-center">Destino: <strong>{centro.nombre}</strong></p>
+      {abierto && (
+        <div className="ui-backdrop ui-backdrop--sheet" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && cerrar()}>
+          <div className="ui-dialog" role="dialog" aria-modal="true" aria-labelledby="aviso-titulo">
+            <div className="ui-dialog__head">
+              <div className="ui-grow">
+                <h2 id="aviso-titulo" className="ui-dialog__title">Avisar que voy en camino</h2>
+                <p className="ui-help" style={{ marginTop: 4 }}>Para {centro.nombre}</p>
               </div>
-              <button
-                type="button"
-                className="btn-modal-close"
-                onClick={cerrarModal}
-                disabled={enviando}
-                aria-label="Cerrar ventana"
-              >
-                <X size={18} />
+              <button type="button" className="ui-btn ui-btn--quiet ui-btn--sm ui-btn--icon" onClick={cerrar} disabled={enviando} aria-label="Cerrar">
+                <X size={16} />
               </button>
             </div>
 
-            {errorEnvio && (
-              <div className="modal-error-alert" role="alert">
-                <Warning size={16} /><span>{errorEnvio}</span>
-              </div>
-            )}
+            <form className="ui-dialog__body ui-form" onSubmit={enviar} noValidate>
+              {errorEnvio && (
+                <div className="ui-alert" role="alert" style={{ marginBottom: 0 }}>
+                  <WarningCircle size={18} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span>{errorEnvio}</span>
+                </div>
+              )}
 
-            {errorValidacion && (
-              <div className="modal-error-alert" role="alert">
-                <Warning size={16} /><span>{errorValidacion}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleEnviarSolicitud} className="modal-form-body">
-              {/* Selector de Síntomas Rápidos (1 toque) */}
-              <div className="form-field-group">
-                <label htmlFor="input-motivo-consulta" className="form-field-label">
-                  Motivo de la urgencia (seleccioná o escribí):
-                </label>
-                <div className="quick-symptoms-chips" role="group" aria-label="Síntomas comunes">
-                  {SINTOMAS_RAPIDOS.map((sintoma) => (
+              <div className="ui-field">
+                <label className="ui-label" htmlFor="input-motivo-consulta">¿Qué te pasa?</label>
+                <div className="dc__motivos" role="group" aria-label="Motivos frecuentes">
+                  {MOTIVOS_FRECUENTES.map((texto) => (
                     <button
-                      key={sintoma}
+                      key={texto}
                       type="button"
-                      className={`symptom-chip ${motivo.includes(sintoma) ? 'symptom-chip--active' : ''}`}
-                      onClick={() => seleccionarSintoma(sintoma)}
+                      className="ui-fchip"
+                      aria-pressed={motivo.includes(texto)}
+                      onClick={() => alternarMotivo(texto)}
+                      disabled={enviando}
                     >
-                      + {sintoma}
+                      {texto}
                     </button>
                   ))}
                 </div>
-
                 <textarea
                   id="input-motivo-consulta"
-                  className="form-textarea-custom"
-                  placeholder="Detalle breve del cuadro o síntomas..."
-                  maxLength={200}
+                  className="ui-textarea"
+                  rows={3}
+                  maxLength={MAX_MOTIVO}
+                  placeholder="Contalo en una línea: síntomas, desde cuándo, si es un chico"
                   value={motivo}
                   onChange={(e) => setMotivo(e.target.value)}
                   disabled={enviando}
+                  aria-describedby="motivo-ayuda"
                 />
-                <span className="char-count-text">
-                  {motivo.length} / 200 caracteres
+                <span id="motivo-ayuda" className="ui-help">
+                  Opcional. <span className="ui-mono">{motivo.length}/{MAX_MOTIVO}</span>
                 </span>
               </div>
 
-              {/* Nombre si es invitado */}
-              {esInvitado && (
-                <div className="form-field-group">
-                  <label htmlFor="input-nombre-invitado" className="form-field-label">
-                    Tu nombre y apellido <span style={{ color: '#c42f3a' }}>*</span>
+              {sinCuenta && (
+                <div className={`ui-field${errorNombre ? ' has-error' : ''}`}>
+                  <label className="ui-label" htmlFor="input-nombre-invitado">
+                    Tu nombre y apellido <span className="ui-required" aria-hidden="true">*</span>
                   </label>
                   <input
                     id="input-nombre-invitado"
                     type="text"
-                    className="form-input-custom"
-                    placeholder="Ej. Juan Gómez"
-                    value={nombreInvitado}
-                    onChange={(e) => setNombreInvitado(e.target.value)}
+                    className="ui-input"
+                    autoComplete="name"
+                    placeholder="Juan Gómez"
+                    value={nombre}
+                    onChange={(e) => setNombre(e.target.value)}
                     disabled={enviando}
+                    aria-invalid={Boolean(errorNombre)}
+                    aria-describedby="nombre-ayuda"
                     required
                   />
-                  <span className="form-field-helper">
-                    Necesario para identificarte al ingresar por la guardia.
+                  <span id="nombre-ayuda" className={errorNombre ? 'ui-error-text' : 'ui-help'}>
+                    {errorNombre || 'Con este nombre te van a llamar en la guardia.'}
                   </span>
                 </div>
               )}
 
-              {/* Teléfono opcional */}
-              <div className="form-field-group">
-                <label htmlFor="input-telefono-contacto" className="form-field-label">
-                  Teléfono de contacto (opcional)
-                </label>
+              <div className="ui-field">
+                <label className="ui-label" htmlFor="input-telefono-contacto">Teléfono de contacto (opcional)</label>
                 <input
                   id="input-telefono-contacto"
                   type="tel"
-                  className="form-input-custom"
-                  placeholder="Ej. 376 412-3456"
-                  value={telefonoContacto}
-                  onChange={(e) => setTelefonoContacto(e.target.value)}
+                  className="ui-input"
+                  autoComplete="tel"
+                  inputMode="tel"
+                  placeholder="376 412-3456"
+                  value={telefono}
+                  onChange={(e) => setTelefono(e.target.value)}
                   disabled={enviando}
                 />
               </div>
 
-              {/* Acciones del Modal */}
-              <div className="modal-footer-actions">
-                <button
-                  type="button"
-                  className="btn btn--modal-cancel"
-                  onClick={cerrarModal}
-                  disabled={enviando}
-                >
+              <div className="ui-dialog__foot dc__pie">
+                <button type="button" className="ui-btn ui-btn--quiet ui-btn--lg" onClick={cerrar} disabled={enviando}>
                   Cancelar
                 </button>
-
-                <button
-                  id="btn-confirmar-solicitud"
-                  type="submit"
-                  className="btn btn--modal-confirm"
-                  disabled={enviando}
-                >
-                  {enviando ? (
-                    <>
-                      <span className="action-spinner" aria-hidden="true" />
-                      <span>Enviando...</span>
-                    </>
-                  ) : (
-                    <span>Confirmar y enviar aviso</span>
-                  )}
+                <button id="btn-confirmar-solicitud" type="submit" className="ui-btn ui-btn--primary ui-btn--lg" disabled={enviando}>
+                  {enviando && <span className="ui-spinner" aria-hidden="true" />}
+                  {enviando ? 'Enviando' : 'Confirmar y enviar aviso'}
                 </button>
               </div>
             </form>

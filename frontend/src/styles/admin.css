@@ -151,7 +151,7 @@
   right: 16px;
   bottom: 16px;
   left: 16px;
-  z-index: 70;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -426,7 +426,7 @@
 }
 
 /* Botón icono con etiqueta accesible */
-.ui-btn--icon { width: 34px; padding: 0; }
+/* .ui-btn--icon vive en consola.css */
 
 /* Métricas en grilla flexible (consolas) */
 .ui-kpis {

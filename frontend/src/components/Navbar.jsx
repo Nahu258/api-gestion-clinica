@@ -1,19 +1,21 @@
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import {
+  Bell,
   Buildings,
   ChartBar,
+  ChartLineUp,
+  ClipboardText,
   FirstAid,
   FirstAidKit,
-  GearSix,
   MapTrifold,
+  SignIn,
+  SignOut,
   SquaresFour,
   Stethoscope,
-  ClipboardText,
-  SignOut,
-  SignIn,
   UsersThree,
 } from '@phosphor-icons/react'
 import { useAuth } from '../context/AuthContext.jsx'
+import { obtenerSolicitudActivaId } from '../api/atencion.js'
 import { etiquetaRol, iniciales } from '../utils/roles.js'
 
 // `end`: el link sólo se marca activo en la ruta exacta (no en sus hijas).
@@ -26,19 +28,27 @@ const LINKS_POR_ROL = {
   ],
   OPERADOR_CENTRO: [
     { to: '/panel-centro', label: 'Guardia', icon: SquaresFour, end: true },
-    { to: '/panel-centro/gestion', label: 'Gestión', icon: GearSix },
+    { to: '/panel-centro/gestion', label: 'Tablero y gestión', icon: ChartLineUp },
   ],
   MEDICO: [{ to: '/portal-medico', label: 'Mi guardia', icon: Stethoscope, end: true }],
   PACIENTE: [{ to: '/mi-historial', label: 'Mi historial', icon: ClipboardText }],
 }
 
 /**
+ * Barra superior única de la app.
+ *
+ * Muestra la sesión real: con cuenta (nombre y rol), invitado, o sin sesión
+ * (botón Ingresar). Quien tiene un aviso en curso ve el acceso "Mi aviso".
+ *
  * @param {boolean} enConsola - En las consolas la navegación del rol vive en la
  *   barra lateral (ConsolaLayout), así que acá sólo queda el mapa.
  */
 export default function Navbar({ enConsola = false }) {
-  const { usuario, rol, estaAutenticado, logout } = useAuth()
+  const { usuario, rol, esInvitado, logout } = useAuth()
   const navigate = useNavigate()
+
+  const conCuenta = Boolean(usuario) && !esInvitado
+  const avisoActivo = !conCuenta || rol === 'PACIENTE' ? obtenerSolicitudActivaId() : null
 
   const handleCerrarSesion = () => {
     logout()
@@ -47,13 +57,12 @@ export default function Navbar({ enConsola = false }) {
 
   const links = [
     { to: '/mapa', label: 'Mapa de guardias', icon: MapTrifold },
-    ...(enConsola ? [] : LINKS_POR_ROL[rol] || []),
+    ...(avisoActivo ? [{ to: `/seguimiento/${avisoActivo}`, label: 'Mi aviso', icon: Bell }] : []),
+    ...(enConsola || !conCuenta ? [] : LINKS_POR_ROL[rol] || []),
   ]
 
-  const nombre = usuario?.medico_nombre || usuario?.nombre || 'Invitado'
-  const subtitulo = usuario?.centro_nombre
-    ? `${etiquetaRol(rol)}, ${usuario.centro_nombre}`
-    : etiquetaRol(rol)
+  const nombre = usuario?.medico_nombre || usuario?.nombre || ''
+  const subtitulo = usuario?.centro_nombre ? `${etiquetaRol(rol)}, ${usuario.centro_nombre}` : etiquetaRol(rol)
 
   return (
     <header className="ui-topbar">
@@ -62,7 +71,7 @@ export default function Navbar({ enConsola = false }) {
           <span className="ui-brand__mark" aria-hidden="true">
             <FirstAid size={17} weight="bold" />
           </span>
-          EmergenciaYA
+          <span className="ui-brand__name">EmergenciaYA</span>
         </Link>
 
         <nav className="ui-nav" aria-label="Principal">
@@ -71,6 +80,7 @@ export default function Navbar({ enConsola = false }) {
               key={to}
               to={to}
               end={end}
+              title={label}
               className={({ isActive }) => `ui-nav__link${isActive ? ' is-active' : ''}`}
             >
               <Icon size={18} />
@@ -80,7 +90,7 @@ export default function Navbar({ enConsola = false }) {
         </nav>
 
         <div className="ui-session">
-          {estaAutenticado ? (
+          {conCuenta ? (
             <>
               <div className="ui-session__who">
                 <span className="ui-session__name">{nombre}</span>
@@ -93,10 +103,13 @@ export default function Navbar({ enConsola = false }) {
               </button>
             </>
           ) : (
-            <Link to="/ingreso" className="ui-btn ui-btn--sm">
-              <SignIn size={16} />
-              Ingresar
-            </Link>
+            <>
+              {esInvitado && <span className="ui-chip ui-chip--line">Invitado, sin cuenta</span>}
+              <Link to="/ingreso" className="ui-btn ui-btn--sm">
+                <SignIn size={16} />
+                Ingresar
+              </Link>
+            </>
           )}
         </div>
       </div>

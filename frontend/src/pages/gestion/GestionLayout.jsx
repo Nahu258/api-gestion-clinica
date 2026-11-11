@@ -7,7 +7,7 @@
  */
 
 import { Link, Navigate, Outlet, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Buildings, CalendarDots, FirstAidKit, House, Stethoscope } from '@phosphor-icons/react'
+import { ArrowLeft, Buildings, CalendarDots, ChartLineUp, FirstAidKit, Stethoscope } from '@phosphor-icons/react'
 import { useAuth } from '../../context/AuthContext.jsx'
 import ConsolaLayout from '../../components/ConsolaLayout.jsx'
 
@@ -44,7 +44,7 @@ export default function GestionLayout() {
   if (esAdmin && !centroId) return <Navigate to="/admin/instituciones" replace />
 
   const items = [
-    { to: `/panel-centro/gestion${sufijo}`, label: 'Inicio', icon: House, end: true },
+    { to: `/panel-centro/gestion${sufijo}`, label: 'Tablero', icon: ChartLineUp, end: true },
     { to: `/panel-centro/gestion/especialidades${sufijo}`, label: 'Especialidades', icon: FirstAidKit },
     { to: `/panel-centro/gestion/medicos${sufijo}`, label: 'Médicos', icon: Stethoscope },
     { to: `/panel-centro/gestion/guardias${sufijo}`, label: 'Guardias', icon: CalendarDots },
@@ -59,7 +59,7 @@ export default function GestionLayout() {
   )
 
   return (
-    <ConsolaLayout titulo="Gestión de la institución" subtitulo={centroNombre} items={items} pie={pie}>
+    <ConsolaLayout titulo="Tablero y gestión" subtitulo={centroNombre} items={items} pie={pie}>
       <Outlet />
     </ConsolaLayout>
   )

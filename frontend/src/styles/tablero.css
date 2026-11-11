@@ -1,0 +1,152 @@
+/*
+ * tablero.css - Tablero del centro: paneles y gráficos de una sola serie.
+ *
+ * Gráficos: columnas finas (máx. 24px) con punta redondeada y base recta,
+ * grilla de una línea tenue, textos en tinta (nunca en el color de la serie).
+ */
+
+:root {
+  --serie: #2f6fb0;
+  --serie-fuerte: #1f5f99;
+}
+
+.tb-seccion { margin-bottom: 24px; }
+.tb-nota { margin-top: 8px; }
+
+.tb-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+@media (max-width: 899px) {
+  .tb-grid { grid-template-columns: 1fr; }
+}
+
+.tb-panel { padding: 20px; min-width: 0; }
+.tb-panel .ui-help { margin-top: 4px; }
+.tb-vacio { margin-top: 28px; padding: 24px 0; text-align: center; color: var(--ink-3); font-size: 0.9rem; }
+
+/* ── Columnas ── */
+
+.tb-cols { margin-top: 20px; }
+
+.tb-cols__plot { position: relative; margin-left: 30px; }
+
+.tb-cols__grid { position: absolute; inset: 0; }
+
+.tb-cols__grid span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--line);
+}
+
+.tb-cols__grid i {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: -0.6em;
+  font-style: normal;
+  font-size: 0.7rem;
+  color: var(--ink-3);
+}
+
+.tb-cols__bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+}
+
+.tb-cols__slot {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 1px;
+  border: none;
+  background: none;
+  cursor: default;
+}
+
+.tb-cols__slot:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; border-radius: 4px; }
+.tb-cols__slot.is-active { background: rgba(18, 21, 26, 0.04); }
+
+.tb-cols__bar {
+  width: 100%;
+  max-width: 24px;
+  min-height: 0;
+  border-radius: 4px 4px 0 0;
+  background: var(--serie);
+  transition: background 0.12s var(--ease);
+}
+
+.tb-cols__slot.is-active .tb-cols__bar { background: var(--serie-fuerte); }
+
+.tb-cols__tip { font-size: 0.72rem; font-weight: 600; color: var(--ink); margin-bottom: 4px; }
+
+.tb-cols__eje {
+  display: flex;
+  margin: 6px 0 0 30px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--ink-3);
+}
+
+.tb-cols__eje span { flex: 1; min-width: 0; text-align: center; white-space: nowrap; overflow: visible; }
+
+.tb-tooltip {
+  position: absolute;
+  top: -8px;
+  z-index: 2;
+  transform: translate(-50%, -100%);
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: #fafafa;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: var(--shadow-pop);
+}
+
+.tb-tooltip[data-borde='izq'] { transform: translate(-12px, -100%); }
+.tb-tooltip[data-borde='der'] { transform: translate(calc(-100% + 12px), -100%); }
+.tb-tooltip span { display: block; color: #c9cdd4; font-size: 0.74rem; }
+.tb-tooltip span::first-letter { text-transform: uppercase; }
+
+/* ── Barras horizontales (ranking) ── */
+
+.tb-hbars { margin-top: 16px; display: grid; gap: 12px; }
+
+.tb-hbars li {
+  display: grid;
+  grid-template-columns: minmax(96px, 34%) minmax(0, 1fr) 3ch;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.88rem;
+}
+
+.tb-hbars__nombre { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-hbars__pista { display: block; height: 10px; }
+.tb-hbars__barra { display: block; height: 100%; min-width: 3px; border-radius: 0 4px 4px 0; background: var(--serie); }
+.tb-hbars__valor { text-align: right; font-weight: 600; color: var(--ink); }
+
+/* ── Prioridades ── */
+
+.tb-prio { margin-top: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }
+.tb-prio dt { font-size: 0.82rem; color: var(--ink-3); }
+.tb-prio dd { margin-top: 2px; display: flex; align-items: baseline; gap: 8px; }
+.tb-prio dd span:first-child { font-size: 1.5rem; font-weight: 500; letter-spacing: -0.03em; }
+.tb-prio dd span:last-child { font-size: 0.8rem; }
+
+/* La columna del médico no se angosta aunque la tabla tenga muchas métricas */
+.ui-table .tb-medico { min-width: 210px; }
+.ui-table .tb-medico .ui-person__name { white-space: nowrap; }

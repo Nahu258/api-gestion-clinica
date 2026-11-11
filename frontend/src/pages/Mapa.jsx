@@ -1,727 +1,531 @@
 /**
- * Mapa.jsx - Mapa Interactivo y Directorio de Centros de Emergencia.
+ * Mapa.jsx - Mapa y listado de guardias cercanas.
  *
- * Épica 3 (AE4-08, issue #17) rediseñado bajo los lineamientos de design-taste-frontend:
- *   - Layout responsive adaptativo: Split-view de 2 columnas en desktop, vista fluida en mobile.
- *   - Clicks 100% confiables en marcadores, popups de Leaflet y cards de centros.
- *   - Búsqueda en tiempo real por texto (nombre, especialidad, barrio).
- *   - Filtros rápidos por categoría (Hospitales, Clínicas, SAME, UPAs, Bomberos, Policía).
- *   - Selector de radio dinámico (5 km, 10 km, 20 km, 50 km).
- *   - Detección GPS con fallback instantáneo a Posadas Centro.
- *   - Soporte offline garantizado con catálogo en tierra firme (sin ubicaciones en el río Paraná).
+ * - Desktop: listado a la izquierda y mapa a la derecha. Mobile: una vista
+ *   por vez, con un conmutador flotante Lista / Mapa.
+ * - Filtros: búsqueda por texto, tipo de centro (carril deslizable, nunca se
+ *   corta), radio y "sólo 24 horas". El tipo se filtra en el dispositivo, así
+ *   cada chip muestra cuántos centros hay y cambiar de filtro es instantáneo.
+ * - Ubicación por GPS con alternativa manual por zona.
+ * - Sin red se muestran los centros guardados y se avisa el motivo real.
  */
 
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import {
-  Ambulance,
   ArrowRight,
-  Buildings,
+  ArrowsClockwise,
   Clock,
   Crosshair,
-  FireTruck,
-  FirstAidKit,
-  Hospital,
   Lightning,
-  List,
+  ListBullets,
   MagnifyingGlass,
   MapPin,
   MapTrifold,
   Phone,
-  ShieldStar,
-  SignOut,
-  Siren,
   Warning,
   X,
 } from '@phosphor-icons/react'
 
+import Navbar from '../components/Navbar.jsx'
+import ChipRail from '../components/ui/ChipRail.jsx'
 import { obtenerCentrosCercanos, MOTIVO_SIN_CONEXION } from '../api/centros.js'
-import { cerrarSesion, getAuthHeaders } from '../api/auth.js'
+import { TIPOS_CENTRO, textoDistancia, tipoCentro } from '../utils/tiposCentro.js'
 
-// Coordenadas de referencia garantizadas (Posadas Centro, tierra firme)
-const COORDENADAS_POSADAS = {
-  lat: -27.3621,
-  lon: -55.9009,
-  nombre: 'Posadas Centro',
-}
+// Punto de referencia cuando no hay GPS
+const POSADAS_CENTRO = { lat: -27.3621, lon: -55.9009, nombre: 'Posadas Centro' }
 
-const PRESETS_UBICACION = [
-  { nombre: 'Posadas Centro', lat: -27.3621, lon: -55.9009 },
-  { nombre: 'Villa Cabello (Oeste)', lat: -27.366, lon: -55.945 },
-  { nombre: 'Itaembé Miní (Sur)', lat: -27.4102, lon: -55.9611 },
-  { nombre: 'Miguel Lanús (Campus)', lat: -27.4332, lon: -55.8895 },
+const ZONAS = [
+  POSADAS_CENTRO,
+  { nombre: 'Villa Cabello', lat: -27.366, lon: -55.945 },
+  { nombre: 'Itaembé Miní', lat: -27.4102, lon: -55.9611 },
+  { nombre: 'Miguel Lanús', lat: -27.4332, lon: -55.8895 },
 ]
 
-// Configuración visual por tipo de servicio
-const TIPOS_CONFIG = {
-  hospital: { label: 'Hospitales', Icon: Hospital, color: '#c42f3a', badgeClass: 'tipo-hospital' },
-  clinica:  { label: 'Clínicas y sanatorios', Icon: Buildings, color: '#7a4b5c', badgeClass: 'tipo-clinica' },
-  same:     { label: 'SAME / 107', Icon: Ambulance, color: '#0284c7', badgeClass: 'tipo-same' },
-  upa:      { label: 'UPAs / CAPS', Icon: FirstAidKit, color: '#059669', badgeClass: 'tipo-upa' },
-  bomberos: { label: 'Bomberos 100', Icon: FireTruck, color: '#ea580c', badgeClass: 'tipo-bomberos' },
-  policia:  { label: 'Policía 911', Icon: ShieldStar, color: '#1e293b', badgeClass: 'tipo-policia' },
-}
-
-const TIPO_GENERICO = { label: 'Centro', Icon: MapPin, color: '#c42f3a' }
+const RADIOS = [5, 10, 20, 50]
 
 // Leaflet recibe HTML plano: los íconos se serializan a SVG
 const iconoHtml = (Icon, props = {}) => renderToStaticMarkup(<Icon {...props} />)
 
+const escapar = (texto = '') =>
+  String(texto).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+
 export default function Mapa() {
   const navigate = useNavigate()
 
-  // Sesión del usuario
-  const headers = getAuthHeaders()
-  const esInvitado = !!headers['X-Guest-Token']
-  const tipoSesion = esInvitado ? 'Invitado de guardia' : 'Usuario registrado'
+  const [ubicacion, setUbicacion] = useState(POSADAS_CENTRO)
+  const [avisoUbicacion, setAvisoUbicacion] = useState(null)
+  const [buscandoGPS, setBuscandoGPS] = useState(false)
+  const [eligiendoZona, setEligiendoZona] = useState(false)
 
-  // Estado de geolocalización
-  const [ubicacionUsuario, setUbicacionUsuario] = useState(COORDENADAS_POSADAS)
-  const [errorUbicacion, setErrorUbicacion] = useState(null)
-  const [obteniendoGPS, setObteniendoGPS] = useState(false)
-
-  // Filtros y búsqueda
   const [radioKm, setRadioKm] = useState(10)
-  const [tipoFiltro, setTipoFiltro] = useState('')
-  const [busquedaTexto, setBusquedaTexto] = useState('')
+  const [tipo, setTipo] = useState('')
+  const [solo24h, setSolo24h] = useState(false)
+  const [busqueda, setBusqueda] = useState('')
 
-  // Vista en mobile ('mapa' | 'lista')
-  const [vistaMobile, setVistaMobile] = useState('lista')
+  // Vista en mobile: 'lista' | 'mapa'
+  const [vista, setVista] = useState('lista')
 
-  // Centros y carga
   const [centros, setCentros] = useState([])
-  const [cargandoCentros, setCargandoCentros] = useState(false)
-  const [errorCentros, setErrorCentros] = useState(null)
-  const [esOffline, setEsOffline] = useState(false)
-  const [motivoOffline, setMotivoOffline] = useState(null)
-  // Se incrementa al volver la conexión para recargar los centros reales.
-  const [reconexiones, setReconexiones] = useState(0)
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState(null)
+  const [offline, setOffline] = useState(null) // null | motivo
+  // Se incrementa para volver a pedir los centros (reintento o vuelta de la red)
+  const [recargas, setRecargas] = useState(0)
 
-  // Centro seleccionado actualmente
-  const [centroSeleccionadoId, setCentroSeleccionadoId] = useState(null)
+  const [seleccionadoId, setSeleccionadoId] = useState(null)
 
-  // Selector manual de zona
-  const [mostrarSelectorManual, setMostrarSelectorManual] = useState(false)
+  const contenedorMapa = useRef(null)
+  const mapa = useRef(null)
+  const capaPines = useRef(null)
+  const pinUsuario = useRef(null)
+  const pines = useRef(new Map())
+  // Los manejadores de Leaflet se registran una vez: leen el estado por ref
+  const estado = useRef({ centros: [], ubicacion })
+  estado.current = { centros, ubicacion }
 
-  // Referencias a Leaflet
-  const mapContainerRef = useRef(null)
-  const mapInstanceRef = useRef(null)
-  const markersLayerRef = useRef(null)
-  const userMarkerRef = useRef(null)
-  const markersMapRef = useRef(new Map())
+  const irADetalle = useCallback(
+    (centro) => navigate(`/centros/${centro.id}`, { state: { centro, ubicacionUsuario: estado.current.ubicacion } }),
+    [navigate]
+  )
 
-  // 1. Inicializar mapa Leaflet una sola vez
-  useEffect(() => {
-    if (!mapContainerRef.current || mapInstanceRef.current) return
-
-    const initialLat = COORDENADAS_POSADAS.lat
-    const initialLon = COORDENADAS_POSADAS.lon
-
-    const map = L.map(mapContainerRef.current, {
-      center: [initialLat, initialLon],
-      zoom: 13,
-      zoomControl: false,
-    })
-
-    // Controles de zoom abajo a la derecha para no tapar los headers
-    L.control.zoom({ position: 'bottomright' }).addTo(map)
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap',
-    }).addTo(map)
-
-    const markersGroup = L.layerGroup().addTo(map)
-    markersLayerRef.current = markersGroup
-    mapInstanceRef.current = map
-
-    // Listener universal para clicks dentro del popup de Leaflet
-    map.on('popupopen', (e) => {
-      const popupEl = e.popup.getElement()
-      if (!popupEl) return
-      const btnDetalle = popupEl.querySelector('.btn--popup-detalle')
-      if (btnDetalle) {
-        L.DomEvent.disableClickPropagation(btnDetalle)
-        btnDetalle.onclick = (evt) => {
-          evt.preventDefault()
-          evt.stopPropagation()
-          const centroId = btnDetalle.getAttribute('data-id')
-          if (centroId) {
-            const encontrado = centros.find((c) => String(c.id) === String(centroId))
-            navigate(`/centros/${centroId}`, {
-              state: { centro: encontrado, ubicacionUsuario },
-            })
-          }
-        }
-      }
-    })
-
-    // Pedir GPS en el montaje
-    solicitarGPS()
-
-    return () => {
-      map.remove()
-      mapInstanceRef.current = null
-    }
-  }, [])
-
-  // 2. Pedir geolocalización al navegador
-  const solicitarGPS = () => {
-    setObteniendoGPS(true)
-    setErrorUbicacion(null)
-
-    if (!('geolocation' in navigator)) {
-      setErrorUbicacion('Tu navegador no admite GPS directo. Usando centro de Posadas.')
-      setObteniendoGPS(false)
-      aplicarCoordenadas(COORDENADAS_POSADAS.lat, COORDENADAS_POSADAS.lon, 'Posadas Centro')
+  const centrarEn = useCallback((lat, lon, esUsuario) => {
+    const m = mapa.current
+    if (!m) return
+    m.setView([lat, lon], 14, { animate: true })
+    if (!esUsuario) {
+      pinUsuario.current?.remove()
+      pinUsuario.current = null
       return
     }
+    if (pinUsuario.current) {
+      pinUsuario.current.setLatLng([lat, lon])
+      return
+    }
+    pinUsuario.current = L.marker([lat, lon], {
+      icon: L.divIcon({ className: 'mp-yo', html: '<span class="mp-yo__halo"></span><span class="mp-yo__punto"></span>', iconSize: [28, 28], iconAnchor: [14, 14] }),
+      zIndexOffset: 1200,
+      keyboard: false,
+    })
+      .bindTooltip('Estás acá', { direction: 'top', offset: [0, -10] })
+      .addTo(m)
+  }, [])
 
+  const usarZona = useCallback(
+    (zona) => {
+      setUbicacion(zona)
+      centrarEn(zona.lat, zona.lon, false)
+    },
+    [centrarEn]
+  )
+
+  const pedirGPS = useCallback(() => {
+    if (!('geolocation' in navigator)) {
+      setAvisoUbicacion('Este navegador no permite usar el GPS. Mostramos las guardias desde Posadas Centro.')
+      usarZona(POSADAS_CENTRO)
+      return
+    }
+    setBuscandoGPS(true)
+    setAvisoUbicacion(null)
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const coords = {
-          lat: pos.coords.latitude,
-          lon: pos.coords.longitude,
-          nombre: 'Tu ubicación actual',
-        }
-        setUbicacionUsuario(coords)
-        setObteniendoGPS(false)
-        setErrorUbicacion(null)
-        setMostrarSelectorManual(false)
-        centrarMapaEnPunto(coords.lat, coords.lon, true)
+        const coords = { lat: pos.coords.latitude, lon: pos.coords.longitude, nombre: 'Tu ubicación' }
+        setUbicacion(coords)
+        setBuscandoGPS(false)
+        setEligiendoZona(false)
+        centrarEn(coords.lat, coords.lon, true)
       },
-      (err) => {
-        setObteniendoGPS(false)
-        setErrorUbicacion('GPS no disponible. Ubicación establecida en Posadas Centro.')
-        aplicarCoordenadas(COORDENADAS_POSADAS.lat, COORDENADAS_POSADAS.lon, 'Posadas Centro')
+      () => {
+        setBuscandoGPS(false)
+        setAvisoUbicacion('No pudimos leer tu ubicación. Mostramos las guardias desde Posadas Centro.')
+        usarZona(POSADAS_CENTRO)
       },
-      {
-        enableHighAccuracy: true,
-        timeout: 9000,
-        maximumAge: 60000,
-      }
+      { enableHighAccuracy: true, timeout: 9000, maximumAge: 60000 }
     )
-  }
+  }, [centrarEn, usarZona])
 
-  const aplicarCoordenadas = (lat, lon, nombre) => {
-    const coords = { lat: Number(lat), lon: Number(lon), nombre }
-    setUbicacionUsuario(coords)
-    centrarMapaEnPunto(coords.lat, coords.lon, false)
-  }
-
-  const centrarMapaEnPunto = (lat, lon, esUsuario = false) => {
-    const map = mapInstanceRef.current
-    if (!map) return
-
-    map.setView([lat, lon], 14, { animate: true })
-
-    if (esUsuario) {
-      if (userMarkerRef.current) {
-        userMarkerRef.current.setLatLng([lat, lon])
-      } else {
-        const userIcon = L.divIcon({
-          className: 'user-marker-leaflet-wrapper',
-          html: `
-            <div class="user-pulse-outer"></div>
-            <div class="user-dot-core"></div>
-          `,
-          iconSize: [28, 28],
-          iconAnchor: [14, 14],
-        })
-
-        const marker = L.marker([lat, lon], {
-          icon: userIcon,
-          zIndexOffset: 1200,
-        }).addTo(map)
-
-        marker.bindPopup(`
-          <div style="font-family: inherit; font-size: 13px; text-align: center; padding: 4px;">
-            <strong style="color: #0284c7;">Tu ubicación actual</strong>
-          </div>
-        `)
-
-        userMarkerRef.current = marker
-      }
-    }
-  }
-
-  // Al volver la conexión se recargan los centros y desaparece el aviso.
+  // 1. Mapa Leaflet: se crea una sola vez
   useEffect(() => {
-    const alReconectar = () => setReconexiones((n) => n + 1)
+    if (!contenedorMapa.current || mapa.current) return undefined
+
+    const m = L.map(contenedorMapa.current, { center: [POSADAS_CENTRO.lat, POSADAS_CENTRO.lon], zoom: 13, zoomControl: false })
+    L.control.zoom({ position: 'bottomright' }).addTo(m)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(m)
+
+    capaPines.current = L.layerGroup().addTo(m)
+    mapa.current = m
+
+    // El botón del popup es HTML plano: se conecta al abrirse
+    m.on('popupopen', (e) => {
+      const boton = e.popup.getElement()?.querySelector('[data-centro]')
+      if (!boton) return
+      L.DomEvent.disableClickPropagation(boton)
+      boton.onclick = () => {
+        const centro = estado.current.centros.find((c) => String(c.id) === boton.dataset.centro)
+        if (centro) irADetalle(centro)
+      }
+    })
+
+    pedirGPS()
+
+    return () => {
+      m.remove()
+      mapa.current = null
+      pinUsuario.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 2. Al volver la red se recargan los centros y desaparece el aviso
+  useEffect(() => {
+    const alReconectar = () => setRecargas((n) => n + 1)
     window.addEventListener('online', alReconectar)
     return () => window.removeEventListener('online', alReconectar)
   }, [])
 
-  // 3. Cargar centros cuando cambian los parámetros
+  // 3. Centros del radio elegido (el tipo se filtra en el dispositivo)
   useEffect(() => {
-    if (!ubicacionUsuario) return
-
     let activo = true
-    setCargandoCentros(true)
-    setErrorCentros(null)
+    setCargando(true)
+    setError(null)
 
-    obtenerCentrosCercanos({
-      lat: ubicacionUsuario.lat,
-      lon: ubicacionUsuario.lon,
-      radio_km: radioKm,
-      tipo: tipoFiltro,
-    })
+    obtenerCentrosCercanos({ lat: ubicacion.lat, lon: ubicacion.lon, radio_km: radioKm })
       .then((data) => {
         if (!activo) return
         setCentros(data.resultados || [])
-        setEsOffline(Boolean(data.esOffline))
-        setMotivoOffline(data.motivoOffline || null)
-        setCargandoCentros(false)
+        setOffline(data.esOffline ? data.motivoOffline || 'error' : null)
       })
       .catch((err) => {
-        if (!activo) return
-        setErrorCentros(err.message || 'Error al obtener los centros.')
-        setCargandoCentros(false)
+        if (activo) setError(err.message || 'No se pudieron cargar los centros.')
+      })
+      .finally(() => {
+        if (activo) setCargando(false)
       })
 
     return () => {
       activo = false
     }
-  }, [ubicacionUsuario, radioKm, tipoFiltro, reconexiones])
+  }, [ubicacion, radioKm, recargas])
 
-  // 4. Centros filtrados por texto
-  const centrosFiltrados = useMemo(() => {
-    if (!busquedaTexto.trim()) return centros
-    const q = busquedaTexto.toLowerCase().trim()
-    return centros.filter(
-      (c) =>
-        c.nombre.toLowerCase().includes(q) ||
-        c.direccion.toLowerCase().includes(q) ||
-        (c.tipo_legible && c.tipo_legible.toLowerCase().includes(q))
-    )
-  }, [centros, busquedaTexto])
-
-  // 5. Renderizar marcadores de centros en el mapa
-  useEffect(() => {
-    const map = mapInstanceRef.current
-    const layer = markersLayerRef.current
-    if (!map || !layer) return
-
-    layer.clearLayers()
-    markersMapRef.current.clear()
-
-    centrosFiltrados.forEach((centro) => {
-      const config = TIPOS_CONFIG[centro.tipo] || TIPO_GENERICO
-      const color = config.color
-      const glyphPin = iconoHtml(config.Icon, { size: 18, weight: 'fill', color: '#ffffff' })
-      const glyphCard = iconoHtml(config.Icon, { size: 18, weight: 'regular', color })
-
-      const icon = L.divIcon({
-        className: 'centro-pin-wrapper',
-        html: `
-          <div class="centro-pin-body" style="background-color: ${color};" id="pin-${centro.id}">
-            <span class="centro-pin-glyph">${glyphPin}</span>
-          </div>
-        `,
-        iconSize: [36, 42],
-        iconAnchor: [18, 40],
-        popupAnchor: [0, -38],
-      })
-
-      const marker = L.marker([centro.latitud, centro.longitud], { icon }).addTo(layer)
-
-      const popupHtml = `
-        <div class="leaflet-custom-card">
-          <div class="leaflet-card-header">
-            <span class="leaflet-card-icon" style="background-color: ${color}20;">${glyphCard}</span>
-            <div>
-              <h4 class="leaflet-card-title">${centro.nombre}</h4>
-              <span class="leaflet-card-dist">${centro.distancia_km != null ? `${centro.distancia_km} km` : 'Cercano'}</span>
-            </div>
-          </div>
-          <p class="leaflet-card-address">${centro.direccion}</p>
-          <div class="leaflet-card-badges">
-            <span class="badge ${centro.atiende_24h ? 'badge--green' : 'badge--gray'}">
-              ${centro.atiende_24h ? '24 Horas' : 'Horario reducido'}
-            </span>
-            <span class="badge badge--tipo">${centro.tipo_legible || config.label}</span>
-          </div>
-          <button
-            type="button"
-            class="btn btn--popup-detalle"
-            data-id="${centro.id}"
-          >
-            Ver guardia y avisar
-          </button>
-        </div>
-      `
-
-      marker.bindPopup(popupHtml, { maxWidth: 290, className: 'leaflet-popup-shell' })
-
-      marker.on('click', () => {
-        setCentroSeleccionadoId(centro.id)
-        scrollearACard(centro.id)
-      })
-
-      markersMapRef.current.set(centro.id, marker)
+  // 4. Filtros en el dispositivo
+  const porTexto = useMemo(() => {
+    const q = busqueda.trim().toLowerCase()
+    return centros.filter((c) => {
+      if (solo24h && !c.atiende_24h) return false
+      if (!q) return true
+      return [c.nombre, c.direccion, c.tipo_legible].some((campo) => (campo || '').toLowerCase().includes(q))
     })
-  }, [centrosFiltrados])
+  }, [centros, busqueda, solo24h])
 
-  const scrollearACard = (id) => {
-    const el = document.getElementById(`card-${id}`)
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  const cantidadPorTipo = useMemo(() => {
+    const conteo = {}
+    porTexto.forEach((c) => {
+      conteo[c.tipo] = (conteo[c.tipo] || 0) + 1
+    })
+    return conteo
+  }, [porTexto])
+
+  const visibles = useMemo(() => (tipo ? porTexto.filter((c) => c.tipo === tipo) : porTexto), [porTexto, tipo])
+
+  const hayFiltros = Boolean(tipo || solo24h || busqueda.trim())
+  const limpiarFiltros = () => {
+    setTipo('')
+    setSolo24h(false)
+    setBusqueda('')
+  }
+
+  // 5. Pines del mapa
+  useEffect(() => {
+    const capa = capaPines.current
+    if (!capa) return
+
+    capa.clearLayers()
+    pines.current.clear()
+
+    visibles.forEach((centro) => {
+      const cfg = tipoCentro(centro.tipo)
+      const pin = L.marker([centro.latitud, centro.longitud], {
+        title: centro.nombre,
+        icon: L.divIcon({
+          className: 'mp-pin',
+          html: `<span class="mp-pin__cuerpo" style="--c:${cfg.color}">${iconoHtml(cfg.Icon, { size: 17, weight: 'fill', color: '#ffffff' })}</span>`,
+          iconSize: [36, 44],
+          iconAnchor: [18, 42],
+          popupAnchor: [0, -40],
+        }),
+      }).addTo(capa)
+
+      pin.bindPopup(
+        `<div class="mp-popup">
+          <p class="mp-popup__tipo">${escapar(centro.tipo_legible || cfg.label)}</p>
+          <h3 class="mp-popup__nombre">${escapar(centro.nombre)}</h3>
+          <p class="mp-popup__dir">${escapar(centro.direccion)}</p>
+          <p class="mp-popup__meta">
+            ${centro.distancia_km != null ? `<span>${textoDistancia(centro.distancia_km)}</span>` : ''}
+            <span>${centro.atiende_24h ? 'Abierto 24 horas' : 'Horario reducido'}</span>
+          </p>
+          <button type="button" class="ui-btn ui-btn--primary ui-btn--sm ui-btn--block" data-centro="${centro.id}">Ver guardia y avisar</button>
+        </div>`,
+        { maxWidth: 280, minWidth: 220, className: 'mp-popup-shell' }
+      )
+
+      pin.on('click', () => {
+        setSeleccionadoId(centro.id)
+        document.getElementById(`card-${centro.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      })
+
+      pines.current.set(centro.id, pin)
+    })
+  }, [visibles])
+
+  // Al pasar a la vista de mapa en mobile, Leaflet necesita recalcular su tamaño
+  useEffect(() => {
+    if (vista !== 'mapa') return undefined
+    const t = setTimeout(() => mapa.current?.invalidateSize(), 60)
+    return () => clearTimeout(t)
+  }, [vista])
+
+  const seleccionar = (centro) => {
+    setSeleccionadoId(centro.id)
+    const pin = pines.current.get(centro.id)
+    if (mapa.current && pin) {
+      mapa.current.setView([centro.latitud, centro.longitud], 16, { animate: true })
+      pin.openPopup()
     }
-  }
-
-  // Click en card: centra mapa y abre popup
-  const handleSeleccionarCentro = (centro) => {
-    setCentroSeleccionadoId(centro.id)
-    const map = mapInstanceRef.current
-    const marker = markersMapRef.current.get(centro.id)
-
-    if (map && marker) {
-      map.setView([centro.latitud, centro.longitud], 16, { animate: true })
-      marker.openPopup()
-    }
-  }
-
-  const handleIrADetalle = (centro) => {
-    navigate(`/centros/${centro.id}`, { state: { centro, ubicacionUsuario } })
-  }
-
-  const handleSalir = () => {
-    cerrarSesion()
-    navigate('/', { replace: true })
   }
 
   return (
-    <div className="mapa-app-shell">
-      {/* ── Top Bar de la Aplicación ── */}
-      <header className="mapa-topbar" role="banner">
-        <div className="mapa-topbar-left">
-          <Link to="/" className="mapa-brand-link" aria-label="Ir a portada EmergenciaYA">
-            <span className="mapa-brand-icon" aria-hidden="true"><Siren size={20} weight="fill" /></span>
-            <span className="mapa-brand-title">EmergenciaYA</span>
-          </Link>
+    <div className="ui-shell mp">
+      <Navbar />
 
-          <span className="sesion-pill" title={`Estado: ${tipoSesion}`}>
-            <span className="pulse-green-dot" aria-hidden="true" />
-            <span>{tipoSesion}</span>
-          </span>
-        </div>
-
-        <div className="mapa-topbar-right">
-          {/* Botón selector de vista en móvil */}
-          <div className="mobile-view-toggle">
-            <button
-              type="button"
-              className={`view-toggle-btn ${vistaMobile === 'lista' ? 'view-toggle-btn--active' : ''}`}
-              onClick={() => setVistaMobile('lista')}
-              aria-label="Ver lista de centros"
-            >
-              <List size={16} /> Lista ({centrosFiltrados.length})
-            </button>
-            <button
-              type="button"
-              className={`view-toggle-btn ${vistaMobile === 'mapa' ? 'view-toggle-btn--active' : ''}`}
-              onClick={() => {
-                setVistaMobile('mapa')
-                setTimeout(() => mapInstanceRef.current?.invalidateSize(), 150)
-              }}
-              aria-label="Ver mapa"
-            >
-              <MapTrifold size={16} /> Mapa
-            </button>
-          </div>
-
-          {/* Botón GPS */}
-          <button
-            type="button"
-            className="topbar-action-btn"
-            onClick={solicitarGPS}
-            disabled={obteniendoGPS}
-            title="Actualizar mi ubicación con GPS"
-            aria-label="Actualizar GPS"
-          >
-            <span className={obteniendoGPS ? 'spin-icon' : ''}><Crosshair size={18} /></span>
-            <span className="desktop-btn-label">Mi ubicación</span>
-          </button>
-
-          {/* Botón Salir */}
-          <button
-            type="button"
-            className="topbar-action-btn topbar-action-btn--exit"
-            onClick={handleSalir}
-            title="Cerrar sesión"
-            aria-label="Cerrar sesión"
-          >
-            <SignOut size={18} />
-          </button>
-        </div>
-      </header>
-
-      {/* Banner de modo offline si aplica */}
-      {esOffline && (
+      {offline && (
         <aside className="offline-alert-banner" role="status">
-          <Lightning size={16} aria-hidden="true" />
+          <Lightning size={16} weight="fill" aria-hidden="true" />
           <span>
-            {motivoOffline === MOTIVO_SIN_CONEXION
+            {offline === MOTIVO_SIN_CONEXION
               ? 'Sin conexión: se muestran los centros de Posadas guardados en el dispositivo.'
               : 'No pudimos actualizar los centros: se muestran los guardados en el dispositivo.'}
           </span>
         </aside>
       )}
 
-      {/* Aviso de GPS fallback */}
-      {errorUbicacion && !mostrarSelectorManual && (
-        <div className="gps-fallback-bar">
-          <span>{errorUbicacion}</span>
-          <button
-            type="button"
-            className="btn-link-action"
-            onClick={() => setMostrarSelectorManual(true)}
-          >
-            Cambiar zona
-          </button>
-        </div>
-      )}
-
-      {/* Selector Manual Desplegable */}
-      {mostrarSelectorManual && (
-        <div className="manual-zone-selector" role="region" aria-label="Seleccionar zona de Posadas">
-          <div className="manual-zone-head">
-            <h4>Elegí tu punto de referencia en Posadas</h4>
-            <button
-              type="button"
-              className="btn-close-sm"
-              onClick={() => setMostrarSelectorManual(false)}
-              aria-label="Cerrar selector"
-            >
-              <X size={16} />
-            </button>
-          </div>
-          <div className="manual-presets-row">
-            {PRESETS_UBICACION.map((p) => (
-              <button
-                key={p.nombre}
-                type="button"
-                className="zone-preset-chip"
-                onClick={() => {
-                  aplicarCoordenadas(p.lat, p.lon, p.nombre)
-                  setMostrarSelectorManual(false)
-                }}
-              >
-                <MapPin size={14} /> {p.nombre}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Cuerpo Principal: 2 Columnas (Sidebar + Mapa) ── */}
-      <div className="mapa-workspace">
-        {/* ── Columna Izquierda: Búsqueda, Filtros y Lista de Centros ── */}
-        <aside className={`mapa-sidebar ${vistaMobile === 'mapa' ? 'mobile-hidden' : ''}`}>
-          {/* Barra de Filtros y Búsqueda */}
-          <div className="sidebar-filter-hub">
-            <div className="search-input-wrapper">
-              <span className="search-icon" aria-hidden="true"><MagnifyingGlass size={18} /></span>
+      <div className="mp__cuerpo" data-vista={vista}>
+        <aside className="mp__panel" aria-label="Guardias cercanas">
+          <div className="mp__filtros">
+            <div className="mp__buscar">
+              <MagnifyingGlass size={18} aria-hidden="true" />
               <input
-                type="text"
-                className="search-input"
-                placeholder="Buscar por nombre, barrio o especialidad..."
-                value={busquedaTexto}
-                onChange={(e) => setBusquedaTexto(e.target.value)}
-                aria-label="Buscar centro de emergencia"
+                type="search"
+                className="mp__buscar-input"
+                placeholder="Buscar por nombre o dirección"
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                aria-label="Buscar centro"
               />
-              {busquedaTexto && (
-                <button
-                  type="button"
-                  className="search-clear-btn"
-                  onClick={() => setBusquedaTexto('')}
-                  aria-label="Borrar búsqueda"
-                >
-                  <X size={14} />
+              {busqueda && (
+                <button type="button" className="mp__buscar-borrar" onClick={() => setBusqueda('')} aria-label="Borrar búsqueda">
+                  <X size={14} weight="bold" />
                 </button>
               )}
             </div>
 
-            {/* Chips de tipo de centro */}
-            <div className="category-chips-bar" role="tablist">
-              <button
-                type="button"
-                className={`category-chip ${tipoFiltro === '' ? 'category-chip--active' : ''}`}
-                onClick={() => setTipoFiltro('')}
-              >
-                Todos ({centros.length})
+            <ChipRail label="Tipo de centro" className="mp__carril">
+              <button type="button" className="ui-fchip" aria-pressed={tipo === ''} onClick={() => setTipo('')}>
+                Todos
+                <span className="ui-fchip__count">{porTexto.length}</span>
               </button>
-              {Object.entries(TIPOS_CONFIG).map(([key, cfg]) => (
+              {Object.entries(TIPOS_CENTRO).map(([clave, cfg]) => (
                 <button
-                  key={key}
+                  key={clave}
                   type="button"
-                  className={`category-chip ${tipoFiltro === key ? 'category-chip--active' : ''}`}
-                  onClick={() => setTipoFiltro(key)}
+                  className="ui-fchip"
+                  aria-pressed={tipo === clave}
+                  onClick={() => setTipo(tipo === clave ? '' : clave)}
                 >
                   <cfg.Icon size={16} aria-hidden="true" />
-                  <span>{cfg.label}</span>
+                  {cfg.corto}
+                  <span className="ui-fchip__count">{cantidadPorTipo[clave] || 0}</span>
                 </button>
               ))}
-            </div>
+            </ChipRail>
 
-            {/* Selector de Radio y Estadísticas */}
-            <div className="radius-selector-row">
-              <div className="radius-select-box">
-                <label htmlFor="radius-select" className="radius-label">Radio:</label>
-                <select
-                  id="radius-select"
-                  className="radius-select"
-                  value={radioKm}
-                  onChange={(e) => setRadioKm(Number(e.target.value))}
-                >
-                  <option value="5">5 km</option>
-                  <option value="10">10 km (Recomendado)</option>
-                  <option value="20">20 km</option>
-                  <option value="50">50 km (Metropolitano)</option>
-                </select>
+            <div className="mp__ajustes">
+              <div className="ui-segmented mp__radio" role="group" aria-label="Radio de búsqueda">
+                {RADIOS.map((km) => (
+                  <button key={km} type="button" className={radioKm === km ? 'is-active' : ''} aria-pressed={radioKm === km} onClick={() => setRadioKm(km)}>
+                    {km} km
+                  </button>
+                ))}
               </div>
-
-              <span className="active-location-tag">
-                <MapPin size={14} /> {ubicacionUsuario.nombre}
-              </span>
+              <button type="button" className="ui-fchip" aria-pressed={solo24h} onClick={() => setSolo24h((v) => !v)}>
+                <Clock size={16} aria-hidden="true" />
+                24 horas
+              </button>
             </div>
-          </div>
 
-          {/* Listado de Cards de Centros */}
-          <div className="sidebar-cards-scroll" id="centros-scroll-container">
-            {cargandoCentros && (
-              <div className="cards-loading-state">
-                <span className="action-spinner action-spinner--red" aria-hidden="true" />
-                <p>Buscando centros cercanos...</p>
+            <div className="mp__ubicacion">
+              <span className="mp__ubicacion-texto">
+                <MapPin size={15} weight="fill" aria-hidden="true" />
+                Desde <strong>{ubicacion.nombre}</strong>
+              </span>
+              <button type="button" className="ui-linkbtn" onClick={pedirGPS} disabled={buscandoGPS}>
+                {buscandoGPS ? <span className="ui-spinner" aria-hidden="true" /> : <Crosshair size={15} aria-hidden="true" />}
+                {buscandoGPS ? 'Ubicando' : 'Usar mi GPS'}
+              </button>
+              <button type="button" className="ui-linkbtn" onClick={() => setEligiendoZona((v) => !v)} aria-expanded={eligiendoZona}>
+                Cambiar zona
+              </button>
+            </div>
+
+            {eligiendoZona && (
+              <div className="mp__zonas" role="group" aria-label="Zonas de Posadas">
+                {ZONAS.map((z) => (
+                  <button
+                    key={z.nombre}
+                    type="button"
+                    className="ui-fchip"
+                    aria-pressed={ubicacion.nombre === z.nombre}
+                    onClick={() => {
+                      usarZona(z)
+                      setAvisoUbicacion(null)
+                      setEligiendoZona(false)
+                    }}
+                  >
+                    {z.nombre}
+                  </button>
+                ))}
               </div>
             )}
 
-            {errorCentros && !cargandoCentros && (
-              <div className="cards-error-state">
-                <p><Warning size={16} /> {errorCentros}</p>
-                <button
-                  type="button"
-                  className="btn btn--sm-outline"
-                  onClick={() => setRadioKm((r) => r)}
-                >
-                  Reintentar búsqueda
+            {avisoUbicacion && !eligiendoZona && <p className="mp__aviso">{avisoUbicacion}</p>}
+          </div>
+
+          <div className="mp__lista">
+            <p className="mp__conteo" aria-live="polite">
+              {cargando
+                ? 'Buscando guardias cercanas'
+                : `${visibles.length} ${visibles.length === 1 ? 'centro' : 'centros'} a menos de ${radioKm} km`}
+              {hayFiltros && !cargando && (
+                <button type="button" className="ui-linkbtn" onClick={limpiarFiltros}>Quitar filtros</button>
+              )}
+            </p>
+
+            {cargando && centros.length === 0 && (
+              <div aria-busy="true">
+                {[0, 1, 2, 3].map((n) => (
+                  <div key={n} className="mp-card mp-card--carga">
+                    <div className="ui-skeleton" style={{ height: 12, width: '35%' }} />
+                    <div className="ui-skeleton" style={{ height: 18, width: '80%' }} />
+                    <div className="ui-skeleton" style={{ height: 12, width: '60%' }} />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {error && !cargando && (
+              <div className="ui-empty">
+                <div className="ui-empty__icon ui-empty__icon--alert"><Warning size={22} /></div>
+                <p className="ui-empty__title">No pudimos cargar los centros</p>
+                <p className="ui-empty__text">{error}</p>
+                <button type="button" className="ui-btn" style={{ marginTop: 16 }} onClick={() => setRecargas((n) => n + 1)}>
+                  <ArrowsClockwise size={16} />
+                  Reintentar
                 </button>
               </div>
             )}
 
-            {!cargandoCentros && centrosFiltrados.length === 0 && !errorCentros && (
-              <div className="cards-empty-state">
-                <span className="empty-icon" aria-hidden="true"><MagnifyingGlass size={28} /></span>
-                <h3>Sin centros en un radio de {radioKm} km</h3>
-                <p>Probá ampliar el radio a 20 o 50 km para ver centros de Posadas y alrededores.</p>
-                <div className="empty-actions">
-                  <button
-                    type="button"
-                    className="btn btn--hero-primary btn--sm"
-                    onClick={() => setRadioKm(50)}
-                  >
-                    Buscar en 50 km
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--hero-secondary btn--sm"
-                    onClick={() => {
-                      setTipoFiltro('')
-                      setBusquedaTexto('')
-                    }}
-                  >
-                    Restablecer filtros
-                  </button>
+            {!cargando && !error && visibles.length === 0 && (
+              <div className="ui-empty">
+                <div className="ui-empty__icon"><MagnifyingGlass size={22} /></div>
+                <p className="ui-empty__title">
+                  {hayFiltros ? 'Ningún centro coincide con los filtros' : `No hay centros a menos de ${radioKm} km`}
+                </p>
+                <p className="ui-empty__text">
+                  {hayFiltros ? 'Probá con otro tipo de centro o quitá los filtros.' : 'Ampliá el radio para ver Posadas y alrededores.'}
+                </p>
+                <div className="mp__vacio-acciones">
+                  {hayFiltros && <button type="button" className="ui-btn" onClick={limpiarFiltros}>Quitar filtros</button>}
+                  {radioKm < 50 && (
+                    <button type="button" className="ui-btn ui-btn--dark" onClick={() => setRadioKm(50)}>Buscar en 50 km</button>
+                  )}
                 </div>
               </div>
             )}
 
-            {!cargandoCentros &&
-              centrosFiltrados.map((centro) => {
-                const cfg = TIPOS_CONFIG[centro.tipo] || TIPO_GENERICO
-                const esActivo = centroSeleccionadoId === centro.id
+            {visibles.map((centro) => {
+              const cfg = tipoCentro(centro.tipo)
+              return (
+                <article
+                  key={centro.id}
+                  id={`card-${centro.id}`}
+                  className={`mp-card${seleccionadoId === centro.id ? ' is-active' : ''}`}
+                  onClick={() => seleccionar(centro)}
+                >
+                  <span className="mp-card__icono" style={{ '--c': cfg.color }} aria-hidden="true">
+                    <cfg.Icon size={20} weight="fill" />
+                  </span>
 
-                return (
-                  <article
-                    key={centro.id}
-                    id={`card-${centro.id}`}
-                    className={`medical-center-card ${esActivo ? 'medical-center-card--active' : ''}`}
-                    onClick={() => handleSeleccionarCentro(centro)}
-                  >
-                    <div className="center-card-topbar">
-                      <div className="center-card-badge-group">
-                        <span className="center-category-badge" style={{ backgroundColor: `${cfg.color}15`, color: cfg.color }}>
-                          <cfg.Icon size={14} weight="bold" /> {centro.tipo_legible || cfg.label}
-                        </span>
-                        <span className={`badge ${centro.atiende_24h ? 'badge--green' : 'badge--gray'}`}>
-                          {centro.atiende_24h ? <><Clock size={12} weight="bold" /> 24 horas</> : 'Horario diurno'}
-                        </span>
-                      </div>
-
-                      {centro.distancia_km != null && (
-                        <span className="center-distance-pill">
-                          {centro.distancia_km} km
-                        </span>
-                      )}
+                  <div className="mp-card__texto">
+                    <p className="mp-card__tipo">{centro.tipo_legible || cfg.label}</p>
+                    <h2 className="mp-card__nombre">{centro.nombre}</h2>
+                    <p className="mp-card__dir">{centro.direccion}</p>
+                    <div className="mp-card__chips">
+                      <span className={`ui-chip${centro.atiende_24h ? ' ui-chip--ok' : ''}`}>
+                        {centro.atiende_24h ? 'Abierto 24 horas' : 'Horario reducido'}
+                      </span>
                     </div>
+                  </div>
 
-                    <div className="center-card-body">
-                      <h3 className="center-card-title">{centro.nombre}</h3>
-                      <p className="center-card-address">
-                        <MapPin size={14} aria-hidden="true" /> {centro.direccion}
-                      </p>
-                    </div>
+                  {centro.distancia_km != null && <span className="mp-card__dist ui-mono">{textoDistancia(centro.distancia_km)}</span>}
 
-                    <div className="center-card-actions">
-                      {centro.telefono && (
-                        <a
-                          href={`tel:${centro.telefono}`}
-                          className="center-phone-btn"
-                          onClick={(e) => e.stopPropagation()}
-                          title={`Llamar al ${centro.telefono}`}
-                          aria-label={`Llamar a ${centro.nombre}`}
-                        >
-                          <Phone size={16} />
-                          <span>{centro.telefono}</span>
-                        </a>
-                      )}
-
-                      <button
-                        type="button"
-                        className="btn btn--card-proceed"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleIrADetalle(centro)
-                        }}
-                        aria-label={`Ver detalles y avisar a ${centro.nombre}`}
+                  <div className="mp-card__acciones">
+                    {centro.telefono && (
+                      <a
+                        href={`tel:${centro.telefono}`}
+                        className="ui-btn ui-btn--sm"
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={`Llamar a ${centro.nombre}`}
                       >
-                        <span>Avisar llegada</span>
-                        <ArrowRight size={16} aria-hidden="true" />
-                      </button>
-                    </div>
-                  </article>
-                )
-              })}
+                        <Phone size={16} />
+                        <span className="ui-mono">{centro.telefono}</span>
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      className="ui-btn ui-btn--primary ui-btn--sm mp-card__ir"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        irADetalle(centro)
+                      }}
+                      aria-label={`Ver detalles y avisar a ${centro.nombre}`}
+                    >
+                      Avisar llegada
+                      <ArrowRight size={16} aria-hidden="true" />
+                    </button>
+                  </div>
+                </article>
+              )
+            })}
           </div>
         </aside>
 
-        {/* ── Columna Derecha: Contenedor del Mapa Leaflet ── */}
-        <section
-          className={`mapa-stage ${vistaMobile === 'lista' ? 'mobile-hidden' : ''}`}
-          aria-label="Mapa interactivo de Posadas"
-        >
-          <div ref={mapContainerRef} className="leaflet-map-canvas" id="leaflet-map" />
-
-          {/* Quick HUD del mapa */}
-          <div className="map-hud-overlay">
-            <span className="hud-badge">
-              <MapPin size={14} /> {centrosFiltrados.length} centros en pantalla
-            </span>
-          </div>
+        <section className="mp__mapa" aria-label="Mapa de Posadas">
+          <div ref={contenedorMapa} className="mp__lienzo" />
         </section>
+
+        <div className="mp__conmutador ui-segmented" role="group" aria-label="Vista">
+          <button type="button" className={vista === 'lista' ? 'is-active' : ''} aria-pressed={vista === 'lista'} onClick={() => setVista('lista')}>
+            <ListBullets size={16} />
+            Lista
+          </button>
+          <button type="button" className={vista === 'mapa' ? 'is-active' : ''} aria-pressed={vista === 'mapa'} onClick={() => setVista('mapa')}>
+            <MapTrifold size={16} />
+            Mapa
+          </button>
+        </div>
       </div>
     </div>
   )
