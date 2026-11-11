@@ -20,7 +20,6 @@ import {
   Ambulance,
   ArrowLeft,
   Buildings,
-  CalendarPlus,
   Car,
   Clock,
   FireTruck,
@@ -69,7 +68,6 @@ export default function DetalleCentro() {
 
   // Modal de solicitud
   const [modalAbierto, setModalAbierto] = useState(false)
-  const [modoSeleccionado, setModoSeleccionado] = useState('aviso') // 'aviso' | 'solicitud'
   const [nombreInvitado, setNombreInvitado] = useState('')
   const [telefonoContacto, setTelefonoContacto] = useState('')
   const [motivo, setMotivo] = useState('')
@@ -99,8 +97,7 @@ export default function DetalleCentro() {
     }
   }, [centro, id])
 
-  const abrirModal = (modo) => {
-    setModoSeleccionado(modo)
+  const abrirModal = () => {
     setErrorValidacion('')
     setErrorEnvio(null)
     setModalAbierto(true)
@@ -142,7 +139,7 @@ export default function DetalleCentro() {
 
     const payload = {
       centro_id: centro.id,
-      modo: modoSeleccionado,
+      modo: 'aviso',
       motivo: motivo.trim() || undefined,
       nombre_invitado: esInvitado ? nombreInvitado.trim() : undefined,
       telefono_invitado: telefonoContacto.trim() || undefined,
@@ -300,7 +297,7 @@ export default function DetalleCentro() {
               id="btn-voy-en-camino"
               type="button"
               className="btn btn--emergency-hero"
-              onClick={() => abrirModal('aviso')}
+              onClick={abrirModal}
             >
               <div className="emergency-btn-inner">
                 <span className="emergency-btn-icon" aria-hidden="true"><Siren size={26} weight="fill" /></span>
@@ -309,16 +306,6 @@ export default function DetalleCentro() {
                   <small>La guardia recibe tu aviso antes de que llegues</small>
                 </div>
               </div>
-            </button>
-
-            <button
-              id="btn-solicitar-urgente"
-              type="button"
-              className="btn btn--emergency-secondary"
-              onClick={() => abrirModal('solicitud')}
-            >
-              <CalendarPlus size={18} />
-              <span>Solicitar atención en el centro</span>
             </button>
 
             {centro.telefono && (
@@ -344,9 +331,7 @@ export default function DetalleCentro() {
             <div className="modal-top-bar">
               <div className="modal-header-text">
                 <h3 id="modal-emergency-title">
-                  {modoSeleccionado === 'aviso'
-                    ? 'Avisar que voy en camino'
-                    : 'Solicitar atención médica'}
+                  Avisar que voy en camino
                 </h3>
                 <p className="modal-target-center">Destino: <strong>{centro.nombre}</strong></p>
               </div>

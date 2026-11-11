@@ -1179,21 +1179,6 @@ body {
   font-weight: 500;
 }
 
-.btn--emergency-secondary {
-  min-height: 52px;
-  background: var(--white);
-  color: var(--slate-900);
-  border: 2px solid var(--slate-300);
-  border-radius: var(--radius-md);
-  font-size: 0.95rem;
-  font-weight: 800;
-}
-
-.btn--emergency-secondary:hover {
-  background: var(--slate-50);
-  border-color: var(--slate-400);
-}
-
 .btn--call-center {
   min-height: 48px;
   background: var(--emerald-50);
