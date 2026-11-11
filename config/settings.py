@@ -43,6 +43,9 @@ def env_list(clave: str, por_defecto: str = "") -> list[str]:
 SECRET_KEY = env("DJANGO_SECRET_KEY", "clave-insegura-solo-para-desarrollo")
 DEBUG = env_bool("DJANGO_DEBUG", True)
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost")
+# Detrás del proxy HTTPS, Django recibe la petición por http y el Origin
+# https://... no coincide: sin esto, el login de /django-admin/ da 403 por CSRF.
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", "https://emergenciaya.duckdns.org")
 
 # ---------------------------------------------------------------------------
 # Aplicaciones instaladas
