@@ -131,6 +131,32 @@
   place-items: center;
 }
 
+/* Logo de EmergenciAPP (manual de identidad): isotipo + nombre en Sora */
+.ea-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--logo, 28px) * 0.25);
+  color: #0f1b2d;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ea-logo svg { flex: none; display: block; }
+
+.ea-logo__word {
+  font-family: 'Sora Variable', 'Sora', var(--font-ui);
+  font-weight: 700;
+  font-size: calc(var(--logo, 28px) * 0.7);
+  letter-spacing: -0.035em;
+}
+
+.ea-logo__app { font-weight: 800; color: #d9252b; }
+.ea-logo--noche { color: #ffffff; }
+.ea-logo--noche .ea-logo__app { color: #ff6b6b; }
+.ea-logo--rojo, .ea-logo--rojo .ea-logo__app { color: #ffffff; }
+.ea-logo--vertical { flex-direction: column; gap: calc(var(--logo, 28px) * 0.16); }
+.ea-logo--vertical .ea-logo__word { font-size: calc(var(--logo, 28px) * 0.42); }
+
 .ui-nav {
   display: flex;
   align-items: center;

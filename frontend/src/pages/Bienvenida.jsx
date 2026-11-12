@@ -8,7 +8,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, FirstAid, Phone, WarningCircle } from '@phosphor-icons/react'
+import { ArrowLeft, ArrowRight, Phone, WarningCircle } from '@phosphor-icons/react'
+import Logo from '../components/Logo.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { rutaInicio } from '../utils/roles.js'
 
@@ -97,8 +98,7 @@ export default function Bienvenida() {
       <div className="ingreso__panel">
         <header className="ingreso__top">
           <Link to="/" className="ui-brand">
-            <span className="ui-brand__mark" aria-hidden="true"><FirstAid size={17} weight="bold" /></span>
-            EmergenciaYA
+            <Logo />
           </Link>
           <Link to="/" className="ui-btn ui-btn--quiet ui-btn--sm">
             <ArrowLeft size={16} />

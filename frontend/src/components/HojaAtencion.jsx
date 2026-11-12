@@ -8,7 +8,7 @@
  *   <HojaAtencion atencion={solicitud} paciente="Camila Benítez" />
  */
 
-import { FirstAid } from '@phosphor-icons/react'
+import Logo from './Logo.jsx'
 import { duracion, estadoDe, etiquetaPrioridad, fechaLarga, hora, minutosEntre } from '../utils/solicitudes.js'
 
 export default function HojaAtencion({ atencion: a, paciente, compacta = false }) {
@@ -26,8 +26,7 @@ export default function HojaAtencion({ atencion: a, paciente, compacta = false }
     <article className={`hoja${compacta ? ' hoja--compacta' : ''}`}>
       <header className="hoja__cabecera">
         <span className="ui-brand">
-          <span className="ui-brand__mark" aria-hidden="true"><FirstAid size={17} weight="bold" /></span>
-          EmergenciaYA
+          <Logo />
         </span>
         <span className="hoja__numero ui-mono">Atención N.º {a.id}</span>
       </header>
@@ -116,7 +115,7 @@ export default function HojaAtencion({ atencion: a, paciente, compacta = false }
       )}
 
       <footer className="hoja__pie">
-        Constancia emitida por EmergenciaYA el {fechaLarga(new Date())}. No reemplaza la historia clínica del centro.
+        Constancia emitida por EmergenciAPP el {fechaLarga(new Date())}. No reemplaza la historia clínica del centro.
       </footer>
     </article>
   )

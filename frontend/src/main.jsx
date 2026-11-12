@@ -5,6 +5,9 @@ import App from './App.jsx'
 // Tipografías servidas desde el propio sitio (funcionan sin salir a internet)
 import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
+// Tipografías de marca (manual de identidad): Sora para títulos y logo, Inter para texto
+import '@fontsource-variable/sora'
+import '@fontsource-variable/inter'
 import './styles/consola.css'
 import './index.css'
 import './styles/admin.css'

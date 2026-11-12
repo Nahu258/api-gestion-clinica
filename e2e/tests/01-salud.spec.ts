@@ -14,7 +14,7 @@ test.describe('Salud del sistema distribuido', () => {
 
   test('el frontend carga la portada', async ({ page }) => {
     await page.goto('/')
-    await expect(page).toHaveTitle(/EmergenciaYA/i)
+    await expect(page).toHaveTitle(/EmergenciAPP/i)
     await expect(page.getByRole('link', { name: /ingresar|avisar|guardia/i }).first()).toBeVisible()
   })
 })

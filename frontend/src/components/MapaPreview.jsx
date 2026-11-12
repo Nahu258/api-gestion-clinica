@@ -43,7 +43,7 @@ export default function MapaPreview({ destacado = 'Sanatorio Boratti' }) {
         radius: c.nombre === destacado ? 8 : 5,
         color: '#ffffff',
         weight: 1.5,
-        fillColor: salud ? '#c42f3a' : '#4a515c',
+        fillColor: salud ? '#D9252B' : '#5B6676',
         fillOpacity: 1,
       })
         .bindTooltip(c.nombre, { direction: 'top', offset: [0, -6] })

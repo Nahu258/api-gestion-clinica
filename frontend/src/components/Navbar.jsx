@@ -5,7 +5,6 @@ import {
   ChartBar,
   ChartLineUp,
   ClipboardText,
-  FirstAid,
   FirstAidKit,
   MapTrifold,
   SignIn,
@@ -14,6 +13,7 @@ import {
   Stethoscope,
   UsersThree,
 } from '@phosphor-icons/react'
+import Logo from './Logo.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { obtenerSolicitudActivaId } from '../api/atencion.js'
 import { etiquetaRol, iniciales } from '../utils/roles.js'
@@ -68,10 +68,7 @@ export default function Navbar({ enConsola = false }) {
     <header className="ui-topbar">
       <div className="ui-topbar__inner">
         <Link to="/" className="ui-brand">
-          <span className="ui-brand__mark" aria-hidden="true">
-            <FirstAid size={17} weight="bold" />
-          </span>
-          <span className="ui-brand__name">EmergenciaYA</span>
+          <Logo nameClass="ui-brand__name" />
         </Link>
 
         <nav className="ui-nav" aria-label="Principal">
